@@ -177,8 +177,9 @@ for code in all_codes_to_download:
 df_all_daily_data = pd.concat(all_daily_data, ignore_index=True)
 
 # 只保留我们需要的列
-df_all_daily_data = df_all_daily_data[['ts_code', 'trade_date', 'close', 'asset_type']]
+# df_all_daily_data = df_all_daily_data[['ts_code', 'trade_date', 'close', 'asset_type']]
 
 # 将数据保存到本地
-df_all_daily_data.to_csv('historical_data.csv', index=False, encoding='utf-8-sig')
-print("\n所有历史行情数据已成功保存到 historical_data.csv 文件中。")
+# df_all_daily_data.to_csv('historical_data.csv', index=False, encoding='utf-8-sig')
+# print("\n所有历史行情数据已成功保存到 historical_data.csv 文件中。")
+
