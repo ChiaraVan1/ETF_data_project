@@ -16,6 +16,7 @@ import tushare as ts
 import pandas as pd
 import re
 from datetime import datetime, timedelta
+import numpy as np
 
 token = os.environ.get('TUSHARE_TOKEN')
 if token:
@@ -138,48 +139,74 @@ print("最终筛选后的基金列表已保存到 final_filtered_funds.csv 文�
 
 df_filtered_funds = df_funds.copy()
 
-# --- 4. 批量下载历史行情数据 ---
+# --- 4. 计算超额收益 ---
 end_date = datetime.now().strftime('%Y%m%d')
 start_date = (datetime.now() - timedelta(days=3*365)).strftime('%Y%m%d')
 
-# 获取所有需要下载数据的代码列表（基金和指数）
-fund_codes = df_filtered_funds['ts_code'].tolist()
-benchmark_codes = df_filtered_funds['benchmark_code'].tolist()
-all_codes_to_download = list(set(fund_codes + benchmark_codes))
+# 创建一个列表来存储计算结果
+results_list = []
 
-all_daily_data = []
+print(f"正在逐一处理 {len(df_funds)} 只ETF，并计算超额收益指标...")
 
-print(f"正在获取 {len(all_codes_to_download)} 个基金和指数的历史行情数据...")
-
-for code in all_codes_to_download:
+for index, row in df_funds.iterrows():
+    fund_code = row['ts_code']
+    benchmark_code = row['benchmark_code']
+    
     try:
-        if code in fund_codes:
-            # 获取基金历史日线数据
-            df_daily = pro.fund_daily(ts_code=code, start_date=start_date, end_date=end_date)
-            # 添加'asset_type'列，标记为'fund'
-            df_daily['asset_type'] = 'fund'
-        elif code in benchmark_codes:
-            # 获取指数历史日线数据
-            df_daily = pro.index_daily(ts_code=code, start_date=start_date, end_date=end_date)
-            # 添加'asset_type'列，标记为'index'
-            df_daily['asset_type'] = 'index'
+        # 1. 获取基金日行情数据（使用 pct_chg 字段）
+        df_fund_daily = pro.fund_daily(ts_code=fund_code, start_date=start_date, end_date=end_date)
+        if df_fund_daily.empty:
+            print(f"警告: 未能获取 {fund_code} 的基金日线数据，跳过。")
+            continue
+            
+        # 2. 获取指数日行情数据（使用 pct_chg 字段）
+        df_index_daily = pro.index_daily(ts_code=benchmark_code, start_date=start_date, end_date=end_date)
+        if df_index_daily.empty:
+            print(f"警告: 未能获取 {benchmark_code} 的指数日线数据，跳过。")
+            continue
         
-        if df_daily is not None and not df_daily.empty:
-            all_daily_data.append(df_daily)
-            print(f"已成功获取 {code} 的数据。")
-        else:
-            print(f"警告: 未能获取 {code} 的数据，可能数据不存在或Tushare返回空。")
+        # 3. 数据预处理
+        df_fund_daily = df_fund_daily[['trade_date', 'ts_code', 'pct_chg']].rename(columns={'pct_chg': 'fund_pct_chg'}).set_index('trade_date').sort_index()
+        df_index_daily = df_index_daily[['trade_date', 'ts_code', 'pct_chg']].rename(columns={'pct_chg': 'index_pct_chg'}).set_index('trade_date').sort_index()
+
+        # 4. 合并数据，按日期对齐
+        merged_data = pd.merge(df_fund_daily, df_index_daily, left_index=True, right_index=True, how='inner')
+        
+        if merged_data.empty:
+            print(f"警告: {fund_code} 与其基准指数 {benchmark_code} 合并后数据为空，跳过。")
+            continue
+
+        # 5. 计算每日超额收益率
+        merged_data['excess_return'] = merged_data['fund_pct_chg'] - merged_data['index_pct_chg']
+        
+        # 6. 计算各项指标
+        excess_return_mean = merged_data['excess_return'].mean()
+        tracking_error = merged_data['excess_return'].std() * np.sqrt(250)
+        
+        # 7. 计算超额收益的移动平均值
+        ma_5 = merged_data['excess_return'].rolling(window=5).mean().iloc[-1]
+        ma_10 = merged_data['excess_return'].rolling(window=10).mean().iloc[-1]
+        ma_15 = merged_data['excess_return'].rolling(window=15).mean().iloc[-1]
+        ma_20 = merged_data['excess_return'].rolling(window=20).mean().iloc[-1]
+        
+        # 8. 存储结果到列表
+        results_list.append({
+            'ts_code': fund_code,
+            'excess_return_mean': excess_return_mean,
+            'tracking_error': tracking_error,
+            'excess_return_5d_ma': ma_5,
+            'excess_return_10d_ma': ma_10,
+            'excess_return_15d_ma': ma_15,
+            'excess_return_20d_ma': ma_20,
+        })
+        print(f"已成功计算 {fund_code} 的超额收益指标。")
 
     except Exception as e:
-        print(f"获取 {code} 数据时发生错误: {e}")
+        print(f"处理 {fund_code} 时发生错误: {e}")
 
-# 将所有数据合并到一个 DataFrame
-df_all_daily_data = pd.concat(all_daily_data, ignore_index=True)
+# 9. 将结果列表转换为 DataFrame 并与原始 df_funds 合并
+df_results = pd.DataFrame(results_list)
+df_funds_with_metrics = pd.merge(df_funds, df_results, on='ts_code', how='left')
 
-# 只保留我们需要的列
-# df_all_daily_data = df_all_daily_data[['ts_code', 'trade_date', 'close', 'asset_type']]
-
-# 将数据保存到本地
-# df_all_daily_data.to_csv('historical_data.csv', index=False, encoding='utf-8-sig')
-# print("\n所有历史行情数据已成功保存到 historical_data.csv 文件中。")
-
+df_funds_with_metrics.to_csv('df_funds_with_metrics.csv', index=False, encoding='utf-8-sig')
+print("最终筛选后的基金列表已保存到 df_funds_with_metrics.csv 文件中。")
