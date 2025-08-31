@@ -39,6 +39,8 @@ jobs:
         TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
       run: |
         python ETF.py
+        python ETF_screened.py
+
 
     - name: 提交并推送文件
       run: |
