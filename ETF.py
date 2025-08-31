@@ -246,9 +246,14 @@ for index, row in df_funds.iterrows():
 
 # 将结果列表转换为 DataFrame 并与原始 df_funds 合并
 df_results = pd.DataFrame(results_list)
-df_funds_with_metrics = pd.merge(df_funds, df_results, on='ts_code', how='left')
+df_funds_with_metrics = pd.merge(df_funds, df_results, on='ts_code', how='left') 
+
+# --- 优化步骤：剔除未能成功计算指标的基金 ---
+# 检查关键指标列 'tracking_error'，如果为空则删除整行
+df_funds_with_all_metrics.dropna(subset=['tracking_error'], inplace=True)
 
 # 保存最终结果
 output_filename = 'df_funds_with_metrics.csv'
 df_funds_with_metrics.to_csv(output_filename, index=False, encoding='utf-8-sig')
 print(f"\n最终包含所有指标的基金列表已保存到 {output_filename} 文件中。")
+
