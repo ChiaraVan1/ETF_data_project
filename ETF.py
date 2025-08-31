@@ -209,6 +209,16 @@ for index, row in df_funds.iterrows():
 df_results = pd.DataFrame(results_list)
 df_funds_with_metrics = pd.merge(df_funds, df_results, on='ts_code', how='left')
 
+df_funds_with_metrics = df_funds_with_metrics.round({
+    "excess_return_mean" : 4,
+    "tracking_error" : 4,
+    "excess_return_5d_ma" : 4,
+    "excess_return_10d_ma" : 4,
+    "excess_return_15d_ma" : 4,
+    "excess_return_20d_ma" : 4,
+    })
+
 df_funds_with_metrics.to_csv('df_funds_with_metrics.csv', index=False, encoding='utf-8-sig')
 print("最终筛选后的基金列表已保存到 df_funds_with_metrics.csv 文件中。")
+
 
