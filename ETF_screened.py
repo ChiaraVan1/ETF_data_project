@@ -60,7 +60,7 @@ df_final_screened = pd.DataFrame(screened_etfs_list)
 if not df_final_screened.empty:
     # Select key columns for the final display
     df_final_screened = df_final_screened[['ts_code', 'name', 'industry', 'invest_type', 'turnover_rate', 'turnover_6m_vs_3y', 'excess_return_mean', 'tracking_error']]
-    print("根据你的4条策略，筛选出的ETF如下：")
-    print(df_final_screened)
+    output_filename = 'ETF_final_screened.csv'
+    df_final_screened.to_csv(output_filename, index=False, encoding='utf-8-sig')
 else:
     print("根据你的4条策略，没有筛选出符合条件的ETF。")
