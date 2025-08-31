@@ -17,6 +17,7 @@ import pandas as pd
 import re
 from datetime import datetime, timedelta
 import numpy as np
+import os
 
 token = os.environ.get('TUSHARE_TOKEN')
 if token:
@@ -210,3 +211,4 @@ df_funds_with_metrics = pd.merge(df_funds, df_results, on='ts_code', how='left')
 
 df_funds_with_metrics.to_csv('df_funds_with_metrics.csv', index=False, encoding='utf-8-sig')
 print("最终筛选后的基金列表已保存到 df_funds_with_metrics.csv 文件中。")
+
