@@ -125,7 +125,7 @@ print("\n清洗后的基金列表已成功保存到 cleaned_funds_list.csv 文�
 
 df_funds = df_lean.copy()
 
-# 进一步筛选基金，剔除不符合监控标准的基金，以提高数据质量和分析效率。
+# 进一步筛选基金
 # 筛选标准：
 # 1. 必须有对应的基准指数代码，否则无法计算跟踪误差。
 # 2. 基金规模不能过小，以保证流动性和代表性。
@@ -138,87 +138,117 @@ print(f"应用规模筛选后，基金数量: {len(df_funds)} 只")
 df_funds.to_csv('final_filtered_funds.csv', index=False, encoding='utf-8-sig')
 print("最终筛选后的基金列表已保存到 final_filtered_funds.csv 文件中。")
 
-df_filtered_funds = df_funds.copy()
+# --- 4. 计算超额收益和流动性指标 ---
+print("正在逐一处理ETF，并计算超额收益与流动性指标...")
 
-# --- 4. 计算超额收益 ---
-end_date = datetime.now().strftime('%Y%m%d')
-start_date = (datetime.now() - timedelta(days=3*365)).strftime('%Y%m%d')
-
-# 创建一个列表来存储计算结果
 results_list = []
-
-print(f"正在逐一处理 {len(df_funds)} 只ETF，并计算超额收益指标...")
+today = datetime.now().date()
+one_year_ago = (today - timedelta(days=365)).strftime('%Y%m%d')
+three_years_ago = (today - timedelta(days=3 * 365)).strftime('%Y%m%d')
 
 for index, row in df_funds.iterrows():
     fund_code = row['ts_code']
     benchmark_code = row['benchmark_code']
-    
+    aum = row['issue_amount']  # 单位是亿元
+
     try:
-        # 1. 获取基金日行情数据（使用 pct_chg 字段）
-        df_fund_daily = pro.fund_daily(ts_code=fund_code, start_date=start_date, end_date=end_date)
+        # 获取基金日行情数据（包含pct_chg和amount）
+        df_fund_daily = pro.fund_daily(ts_code=fund_code, start_date=three_years_ago)
         if df_fund_daily.empty:
             print(f"警告: 未能获取 {fund_code} 的基金日线数据，跳过。")
             continue
-            
-        # 2. 获取指数日行情数据（使用 pct_chg 字段）
-        df_index_daily = pro.index_daily(ts_code=benchmark_code, start_date=start_date, end_date=end_date)
+
+        # 获取指数日行情数据
+        df_index_daily = pro.index_daily(ts_code=benchmark_code, start_date=three_years_ago)
         if df_index_daily.empty:
             print(f"警告: 未能获取 {benchmark_code} 的指数日线数据，跳过。")
             continue
         
-        # 3. 数据预处理
-        df_fund_daily = df_fund_daily[['trade_date', 'ts_code', 'pct_chg']].rename(columns={'pct_chg': 'fund_pct_chg'}).set_index('trade_date').sort_index()
-        df_index_daily = df_index_daily[['trade_date', 'ts_code', 'pct_chg']].rename(columns={'pct_chg': 'index_pct_chg'}).set_index('trade_date').sort_index()
+        # 数据预处理：转换为日期格式并按日期排序
+        df_fund_daily['trade_date'] = pd.to_datetime(df_fund_daily['trade_date'])
+        df_fund_daily.set_index('trade_date', inplace=True)
+        df_fund_daily.sort_index(inplace=True)
 
-        # 4. 合并数据，按日期对齐
-        merged_data = pd.merge(df_fund_daily, df_index_daily, left_index=True, right_index=True, how='inner')
+        df_index_daily['trade_date'] = pd.to_datetime(df_index_daily['trade_date'])
+        df_index_daily.set_index('trade_date', inplace=True)
+        df_index_daily.sort_index(inplace=True)
+
+        # ------------------- 计算超额收益指标 -------------------
+        # 合并数据，按日期对齐
+        merged_data = pd.merge(df_fund_daily, df_index_daily, left_index=True, right_index=True, how='inner', suffixes=('_fund', '_index'))
         
-        if merged_data.empty:
-            print(f"警告: {fund_code} 与其基准指数 {benchmark_code} 合并后数据为空，跳过。")
+        if merged_data.empty or len(merged_data) < 20:
+            print(f"警告: {fund_code} 与其基准指数 {benchmark_code} 合并后数据不足，跳过。")
             continue
 
-        # 5. 计算每日超额收益率
-        merged_data['excess_return'] = merged_data['fund_pct_chg'] - merged_data['index_pct_chg']
+        # 计算每日超额收益率
+        merged_data['excess_return'] = merged_data['pct_chg_fund'] - merged_data['pct_chg_index']
         
-        # 6. 计算各项指标
-        excess_return_mean = merged_data['excess_return'].mean()
-        tracking_error = merged_data['excess_return'].std() * np.sqrt(250)
+        # 筛选超额收益数据
+        df_excess_3y = merged_data[merged_data.index >= three_years_ago]
         
-        # 7. 计算超额收益的移动平均值
+        # 计算各项指标
+        excess_return_mean = df_excess_3y['excess_return'].mean()
+        tracking_error = df_excess_3y['excess_return'].std() * np.sqrt(250)
+        
+        # 计算超额收益的移动平均值
         ma_5 = merged_data['excess_return'].rolling(window=5).mean().iloc[-1]
         ma_10 = merged_data['excess_return'].rolling(window=10).mean().iloc[-1]
         ma_15 = merged_data['excess_return'].rolling(window=15).mean().iloc[-1]
         ma_20 = merged_data['excess_return'].rolling(window=20).mean().iloc[-1]
+
+        # ------------------- 计算流动性指标 -------------------
+        # 筛选过去一年的数据
+        df_liquidity_1y = df_fund_daily[df_fund_daily.index >= one_year_ago]
         
-        # 8. 存储结果到列表
+        # 筛选过去三年和半年的数据
+        df_liquidity_3y = df_fund_daily[df_fund_daily.index >= three_years_ago]
+        df_liquidity_6m = df_liquidity_1y[df_liquidity_1y.index >= (today - timedelta(days=180)).strftime('%Y%m%d')]
+        
+        # 1年日成交额均值 (单位：千元)
+        turnover_1y_mean = df_liquidity_1y['amount'].mean()
+        
+        # 换手率 = 日均成交额 ÷ AUM
+        turnover_rate = turnover_1y_mean / (aum * 100000) if aum > 0 else np.nan
+
+        # 成交额半年均值 ÷ 3年均值
+        turnover_6m_mean = df_liquidity_6m['amount'].mean()
+        turnover_3y_mean = df_liquidity_3y['amount'].mean()
+        turnover_6m_vs_3y = turnover_6m_mean / turnover_3y_mean if turnover_3y_mean > 0 else np.nan
+        
+        # 1年日成交额std (单位：千元)
+        turnover_1y_std = df_liquidity_1y['amount'].std()
+        
+        # 低分位成交额（5% quantile）
+        low_quantile_turnover = df_liquidity_1y['amount'].quantile(0.05)
+
+        # ------------------- 存储所有结果 -------------------
         results_list.append({
             'ts_code': fund_code,
+            # 超额收益指标
             'excess_return_mean': excess_return_mean,
             'tracking_error': tracking_error,
             'excess_return_5d_ma': ma_5,
             'excess_return_10d_ma': ma_10,
             'excess_return_15d_ma': ma_15,
             'excess_return_20d_ma': ma_20,
+            # 流动性指标
+            'turnover_1y_mean': turnover_1y_mean,
+            'turnover_rate': turnover_rate,
+            'turnover_6m_vs_3y': turnover_6m_vs_3y,
+            'turnover_1y_std': turnover_1y_std,
+            'low_quantile_turnover': low_quantile_turnover,
         })
-        print(f"已成功计算 {fund_code} 的超额收益指标。")
+        print(f"已成功计算 {fund_code} 的超额收益和流动性指标。")
 
     except Exception as e:
         print(f"处理 {fund_code} 时发生错误: {e}")
 
-# 9. 将结果列表转换为 DataFrame 并与原始 df_funds 合并
+# 将结果列表转换为 DataFrame 并与原始 df_funds 合并
 df_results = pd.DataFrame(results_list)
 df_funds_with_metrics = pd.merge(df_funds, df_results, on='ts_code', how='left')
 
-df_funds_with_metrics = df_funds_with_metrics.round({
-    "excess_return_mean" : 4,
-    "tracking_error" : 4,
-    "excess_return_5d_ma" : 4,
-    "excess_return_10d_ma" : 4,
-    "excess_return_15d_ma" : 4,
-    "excess_return_20d_ma" : 4,
-    })
-
-df_funds_with_metrics.to_csv('df_funds_with_metrics.csv', index=False, encoding='utf-8-sig')
-print("最终筛选后的基金列表已保存到 df_funds_with_metrics.csv 文件中。")
-
-
+# 保存最终结果
+output_filename = 'df_funds_with_metrics.csv'
+df_funds_with_metrics.to_csv(output_filename, index=False, encoding='utf-8-sig')
+print(f"\n最终包含所有指标的基金列表已保存到 {output_filename} 文件中。")
