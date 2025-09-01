@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - main
+    paths:
+      - 'ETF.py'
+      - 'ETF_screened.py'
   pull_request:
     branches:
       - main
