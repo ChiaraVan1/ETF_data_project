@@ -91,7 +91,7 @@ def run_all_modes():
     print("已成功加载数据报告。")
     columns_to_convert = ['excess_return_mean', 'tracking_error', 'turnover_rate', 'turnover_6m_vs_3y',
                           'excess_return_5d_ma', 'excess_return_10d_ma', 'excess_return_15d_ma', 'excess_return_20d_ma',
-                          'turnover_acceleration', 'turnover_quantile']
+                          'turnover_acceleration', 'turnover_quantile', 'turnover_pct_in_industry_quantile']
     for col in columns_to_convert:
         df_funds[col] = pd.to_numeric(df_funds[col], errors='coerce')
     df_funds['ma_trend_slope'] = df_funds.apply(calculate_ma_slope, axis=1)
@@ -108,10 +108,13 @@ def run_all_modes():
         df_normal['超额收益趋势斜率(万分之)'] = df_normal['ma_trend_slope'].round(4)
         df_normal['换手率6个月比3年'] = df_normal['turnover_6m_vs_3y'].round(2)
         df_normal['行业内成交额占比(%)'] = (df_normal['turnover_pct_in_industry'] * 100).round(2)
+        # 新增：行业内成交额占比(百分位)
+        df_normal['行业内成交额占比(百分位)'] = (df_normal['turnover_pct_in_industry_quantile'] * 100).round(2)
         
         df_normal = df_normal[['ts_code', 'name', 'industry', 'invest_type',
                                '换手率(%)', '换手率6个月比3年', '超额收益均值(%)', '追踪误差(%)',
-                               '超额收益趋势斜率(万分之)', 'is_price_turnover_divergence', '行业内成交额占比(%)']]
+                               '超额收益趋势斜率(万分之)', 'is_price_turnover_divergence', 
+                               '行业内成交额占比(%)', '行业内成交额占比(百分位)']]
         df_normal.rename(columns={'is_price_turnover_divergence': '价格成交额背离'}, inplace=True)
 
         output_filename = 'etf_screener_results_normal_mode.csv'
@@ -133,11 +136,13 @@ def run_all_modes():
         df_reversal['资金流分位数(%)'] = (df_reversal['turnover_quantile'] * 100).round(2)
         df_reversal['换手率6个月比3年'] = df_reversal['turnover_6m_vs_3y'].round(2)
         df_reversal['行业内成交额占比(%)'] = (df_reversal['turnover_pct_in_industry'] * 100).round(2)
+        # 新增：行业内成交额占比(百分位)
+        df_reversal['行业内成交额占比(百分位)'] = (df_reversal['turnover_pct_in_industry_quantile'] * 100).round(2)
         
         df_reversal = df_reversal[['ts_code', 'name', 'industry', 'invest_type',
                                    '价格成交额背离', '资金流加速度(倍)', '资金流分位数(%)',
                                    '换手率(%)', '换手率6个月比3年', '超额收益均值(%)', '追踪误差(%)',
-                                   '超额收益趋势斜率(万分之)', '行业内成交额占比(%)']]
+                                   '超额收益趋势斜率(万分之)', '行业内成交额占比(%)', '行业内成交额占比(百分位)']]
         df_reversal.rename(columns={'is_price_turnover_divergence': '价格成交额背离'}, inplace=True)
 
         output_filename = 'etf_screener_results_reversal_mode.csv'
