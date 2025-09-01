@@ -42,18 +42,12 @@ jobs:
         env:
           TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
         run: |
-          python ETF.py
-
-      - name: 运行 ETF 筛选和计算脚本
-        env:
-          TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
-        run: |
-          python ETF_screened.py
+          python ETF.py && python ETF_screened.py
 
       - name: 提交并推送文件
         run: |
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-          git add final_filtered_funds.csv df_funds_with_metrics.csv ETF_final_screened
+          git add .  # 添加所有更改的文件
           git commit -m "每日数据更新" || echo "没有文件变动，跳过提交"
           git push
