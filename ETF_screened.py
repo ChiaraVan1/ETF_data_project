@@ -28,7 +28,7 @@ industry_metrics_mean = df_funds.groupby('industry').agg({
     'excess_return_mean': 'mean',
     'tracking_error': 'mean'
 }).to_dict('index')
-# end
+# --- end ---
 # --- Step 3: Apply the combined screening strategy ---
 
 # Create a list to store the final screened ETFs
