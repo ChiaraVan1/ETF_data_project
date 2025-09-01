@@ -15,7 +15,7 @@ for col in columns_to_convert:
 df_funds.dropna(subset=columns_to_convert, inplace=True)
 
 # --- Step 2: Define the thresholds based on the user's updated strategy ---
-
+# 策略部分
 # Threshold for `turnover_rate`: 10% percentile of ALL funds (already handled)
 turnover_rate_threshold = df_funds['turnover_rate'].quantile(0.1)
 
@@ -28,7 +28,7 @@ industry_metrics_mean = df_funds.groupby('industry').agg({
     'excess_return_mean': 'mean',
     'tracking_error': 'mean'
 }).to_dict('index')
-
+# end
 # --- Step 3: Apply the combined screening strategy ---
 
 # Create a list to store the final screened ETFs
