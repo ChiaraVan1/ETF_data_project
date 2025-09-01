@@ -61,6 +61,7 @@ def perform_screening(df_funds, mode='normal'):
                 cond2 = row['tracking_error'] < tracking_error_threshold
                 cond3 = row['ma_trend_slope'] > 0
                 cond4 = row['is_price_turnover_divergence'] == False
+
                 if cond1 and cond2 and cond3 and cond4:
                     screened_etfs_list.append(row)
 
@@ -100,14 +101,19 @@ def run_all_modes():
     print("\n--- 正在运行常规筛选模式 ---")
     df_normal = perform_screening(df_funds, mode='normal')
     if not df_normal.empty:
+        # 数值格式化和列名优化
+        df_normal['超额收益均值'] = (df_normal['excess_return_mean'] * 100).round(2)
+        df_normal['追踪误差'] = (df_normal['tracking_error'] * 100).round(2)
+        df_normal['换手率'] = (df_normal['turnover_rate'] * 100).round(2)
+        df_normal['超额收益趋势斜率'] = df_normal['ma_trend_slope'].round(4)
+        df_normal['换手率6个月比3年'] = df_normal['turnover_6m_vs_3y'].round(2)
+        df_normal['行业内成交额占比'] = (df_normal['turnover_pct_in_industry'] * 100).round(2)
+        
         df_normal = df_normal[['ts_code', 'name', 'industry', 'invest_type',
-                               'turnover_rate', 'turnover_6m_vs_3y', 'excess_return_mean', 'tracking_error',
-                               'ma_trend_slope', 'is_price_turnover_divergence', 'turnover_pct_in_industry']]
-        df_normal.rename(columns={
-            'turnover_rate': '换手率', 'turnover_6m_vs_3y': '换手率6个月比3年', 'excess_return_mean': '超额收益均值', 
-            'tracking_error': '追踪误差', 'ma_trend_slope': '超额收益趋势斜率', 
-            'is_price_turnover_divergence': '价格成交额背离', 'turnover_pct_in_industry': '行业内成交额占比'
-        }, inplace=True)
+                               '换手率', '换手率6个月比3年', '超额收益均值', '追踪误差',
+                               '超额收益趋势斜率', 'is_price_turnover_divergence', '行业内成交额占比']]
+        df_normal.rename(columns={'is_price_turnover_divergence': '价格成交额背离'}, inplace=True)
+
         output_filename = 'etf_screener_results_normal_mode.csv'
         df_normal.to_csv(output_filename, index=False, encoding='utf-8-sig')
         print(f"在'normal'模式下，成功筛选出 {len(df_normal)} 只ETF。结果已保存到 {output_filename} 文件中。")
@@ -118,16 +124,22 @@ def run_all_modes():
     print("\n--- 正在运行反转机会捕捉模式 ---")
     df_reversal = perform_screening(df_funds, mode='reversal')
     if not df_reversal.empty:
+        # 数值格式化和列名优化
+        df_reversal['超额收益均值'] = (df_reversal['excess_return_mean'] * 100).round(2)
+        df_reversal['追踪误差'] = (df_reversal['tracking_error'] * 100).round(2)
+        df_reversal['换手率'] = (df_reversal['turnover_rate'] * 100).round(2)
+        df_reversal['超额收益趋势斜率'] = df_reversal['ma_trend_slope'].round(4)
+        df_reversal['资金流加速度'] = df_reversal['turnover_acceleration'].round(2)
+        df_reversal['资金流分位数'] = (df_reversal['turnover_quantile'] * 100).round(2)
+        df_reversal['换手率6个月比3年'] = df_reversal['turnover_6m_vs_3y'].round(2)
+        df_reversal['行业内成交额占比'] = (df_reversal['turnover_pct_in_industry'] * 100).round(2)
+        
         df_reversal = df_reversal[['ts_code', 'name', 'industry', 'invest_type',
-                                   'is_price_turnover_divergence', 'turnover_acceleration', 'turnover_quantile',
-                                   'turnover_rate', 'turnover_6m_vs_3y', 'excess_return_mean', 'tracking_error',
-                                   'ma_trend_slope', 'turnover_pct_in_industry']]
-        df_reversal.rename(columns={
-            'turnover_rate': '换手率', 'turnover_6m_vs_3y': '换手率6个月比3年', 'excess_return_mean': '超额收益均值', 
-            'tracking_error': '追踪误差', 'ma_trend_slope': '超额收益趋势斜率', 
-            'is_price_turnover_divergence': '价格成交额背离', 'turnover_pct_in_industry': '行业内成交额占比',
-            'turnover_acceleration': '资金流加速度', 'turnover_quantile': '资金流分位数'
-        }, inplace=True)
+                                   '价格成交额背离', '资金流加速度', '资金流分位数',
+                                   '换手率', '换手率6个月比3年', '超额收益均值', '追踪误差',
+                                   '超额收益趋势斜率', '行业内成交额占比']]
+        df_reversal.rename(columns={'is_price_turnover_divergence': '价格成交额背离'}, inplace=True)
+
         output_filename = 'etf_screener_results_reversal_mode.csv'
         df_reversal.to_csv(output_filename, index=False, encoding='utf-8-sig')
         print(f"在'reversal'模式下，成功筛选出 {len(df_reversal)} 只ETF。结果已保存到 {output_filename} 文件中。")
