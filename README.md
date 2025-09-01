@@ -20,10 +20,8 @@ name
 资金流分位数（最近1周净流入在过去12个月周度分布中的分位数）
 价格-资金背离
 宽基-行业分化
-<img width="178" height="139" alt="image" src="https://github.com/user-attachments/assets/28440197-ac46-412f-beba-8ffdca363d6a" />
 
-
-5. 价格
+6. 价格
 close
 净值
 日折价率	1年折价率	3年折价率	5年折价率	1年折价率百分位	3年折价率百分位	5年折价率百分位
@@ -31,7 +29,7 @@ PE
 PB
 PE高位	PB高位	PE低位	PB低位	PE百分位	PB百分位	PE当前分位	PB当前分位
 
-6. 超额收益
+7. 超额收益
 超额收益率
 超额收益率均值
 追踪误差
