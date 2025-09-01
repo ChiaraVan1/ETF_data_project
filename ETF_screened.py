@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 
 # Load the data
-df_funds = pd.read_csv('df_funds_with_all_metrics.csv')
+df_funds = pd.read_csv('df_funds_with_metrics.csv')
 
 # --- Step 1: Data Cleaning and Preprocessing ---
 
