@@ -231,7 +231,12 @@ def run_data_fetcher():
     print("\n--- 5. 计算行业内部相对成交额占比 ---")
     df_industry_turnover = df_funds_with_metrics.groupby('industry')['turnover_ratio_1w'].transform('sum')
     df_funds_with_metrics['turnover_pct_in_industry'] = df_funds_with_metrics['turnover_ratio_1w'] / df_industry_turnover
+
     
+    
+    # 计算行业内成交额占比的百分位数
+    df_funds_with_metrics['turnover_pct_in_industry_quantile'] = df_funds_with_metrics['turnover_pct_in_industry'].rank(pct=True)
+
     # 剔除未能成功计算指标的基金
     df_funds_with_metrics.dropna(subset=['tracking_error'], inplace=True)
 
