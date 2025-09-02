@@ -31,21 +31,17 @@ def get_price_and_valuation_data(ts_code, benchmark_code, start_date, end_date, 
     """
     Fetches price, NAV, and index valuation data for a single ETF and calculates metrics.
     """
-    # 1. Fetch ETF daily data
     df_daily = pro.fund_daily(ts_code=ts_code, start_date=start_date, end_date=end_date, fields='ts_code,trade_date,close,pre_close,pct_chg')
     df_daily['trade_date'] = pd.to_datetime(df_daily['trade_date'])
     df_daily.set_index('trade_date', inplace=True)
     
-    # 2. Fetch ETF NAV data
     df_nav = pro.fund_nav(ts_code=ts_code, start_date=start_date, end_date=end_date, fields='ts_code,nav_date,unit_nav,adj_nav')
     df_nav['nav_date'] = pd.to_datetime(df_nav['nav_date'])
     df_nav.set_index('nav_date', inplace=True)
     
-    # 3. Merge data
     df_merged = pd.merge(df_daily, df_nav, left_index=True, right_index=True, how='outer')
     df_merged.sort_index(inplace=True)
     
-    # 4. Fetch benchmark index valuation (PE/PB)
     if benchmark_code:
         df_index_basic = pro.index_dailybasic(ts_code=benchmark_code, start_date=start_date, end_date=end_date, fields='trade_date,pe,pe_ttm,pb')
         if df_index_basic.empty:
@@ -55,7 +51,6 @@ def get_price_and_valuation_data(ts_code, benchmark_code, start_date, end_date, 
             df_index_basic.set_index('trade_date', inplace=True)
             df_merged = pd.merge(df_merged, df_index_basic, left_index=True, right_index=True, how='left')
     
-    # 5. Calculate price metrics
     df_merged['pct_chg_decimal'] = df_merged['pct_chg'] / 100
     df_merged['annual_volatility'] = df_merged['pct_chg_decimal'].rolling(window=252).std() * np.sqrt(252)
     df_merged['premium_rate'] = (df_merged['close'] - df_merged['unit_nav']) / df_merged['unit_nav']
@@ -70,11 +65,10 @@ def calculate_percentiles(df, col_name, window=None):
     series = df[col_name].dropna()
     if window:
         series = series.tail(window)
-        if len(series) < window * 0.5: # Not enough data
+        if len(series) < window * 0.5:
             return np.nan
     
     current_value = series.iloc[-1]
-    # Calculate percentile rank
     percentile = (series.rank(pct=True).iloc[-1])
     return percentile
 
@@ -104,7 +98,6 @@ def run_data_fetcher():
 
     df_selected_funds = df_all_funds[condition_consumer | condition_tech | condition_healthcare].copy()
 
-    # 修正了 SettingWithCopyWarning 的代码
     df_selected_funds.loc[condition_consumer, 'industry'] = '消费'
     df_selected_funds.loc[condition_tech, 'industry'] = '科技'
     df_selected_funds.loc[condition_healthcare, 'industry'] = '医疗'
@@ -168,142 +161,196 @@ def run_data_fetcher():
     today = datetime.now().date()
     three_years_ago = (today - timedelta(days=3 * 365)).strftime('%Y%m%d')
 
-    for index, row in df_funds.iterrows():
-        fund_code = row['ts_code']
-        benchmark_code = row['benchmark_code']
-        aum = row['issue_amount']
+    if df_funds.empty:
+        print("\n警告: 筛选后的基金列表为空，无法生成报告。请检查筛选条件和数据来源。")
+    else:
+        for index, row in df_funds.iterrows():
+            fund_code = row['ts_code']
+            benchmark_code = row['benchmark_code']
+            aum = row['issue_amount']
 
-        try:
-            # 获取基金和指数日行情数据
-            df_fund_daily = pro.fund_daily(ts_code=fund_code, start_date=three_years_ago)
-            df_index_daily = pro.index_daily(ts_code=benchmark_code, start_date=three_years_ago)
-            if df_fund_daily.empty or df_index_daily.empty:
-                print(f"警告: 未能获取 {fund_code} 或其基准 {benchmark_code} 的日线数据，跳过。")
-                continue
-            
-            df_fund_daily['trade_date'] = pd.to_datetime(df_fund_daily['trade_date'])
-            df_fund_daily.set_index('trade_date', inplace=True)
-            df_fund_daily.sort_index(inplace=True)
-            df_index_daily['trade_date'] = pd.to_datetime(df_index_daily['trade_date'])
-            df_index_daily.set_index('trade_date', inplace=True)
-            df_index_daily.sort_index(inplace=True)
-
-            merged_data = pd.merge(df_fund_daily, df_index_daily, left_index=True, right_index=True, how='inner', suffixes=('_fund', '_index'))
-            
-            if merged_data.empty or len(merged_data) < 20:
-                print(f"警告: {fund_code} 数据不足，跳过。")
-                continue
-
-            merged_data['excess_return'] = merged_data['pct_chg_fund'] - merged_data['pct_chg_index']
-            
-            df_excess_3y = merged_data[merged_data.index >= three_years_ago]
-            excess_return_mean = df_excess_3y['excess_return'].mean()
-            tracking_error = df_excess_3y['excess_return'].std() * np.sqrt(250)
-            
-            ma_5 = merged_data['excess_return'].rolling(window=5).mean().iloc[-1]
-            ma_10 = merged_data['excess_return'].rolling(window=10).mean().iloc[-1]
-            ma_15 = merged_data['excess_return'].rolling(window=15).mean().iloc[-1]
-            ma_20 = merged_data['excess_return'].rolling(window=20).mean().iloc[-1]
-            
-            df_liquidity_1y = df_fund_daily[df_fund_daily.index >= (today - timedelta(days=365)).strftime('%Y%m%d')]
-            df_liquidity_3y = df_fund_daily[df_fund_daily.index >= three_years_ago]
-            df_liquidity_6m = df_liquidity_1y[df_liquidity_1y.index >= (today - timedelta(days=180)).strftime('%Y%m%d')]
-            
-            turnover_1y_mean = df_liquidity_1y['amount'].mean()
-            turnover_rate = turnover_1y_mean / (aum * 100000) if aum > 0 else np.nan
-            turnover_6m_mean = df_liquidity_6m['amount'].mean()
-            turnover_3y_mean = df_liquidity_3y['amount'].mean()
-            turnover_6m_vs_3y = turnover_6m_mean / turnover_3y_mean if turnover_3y_mean > 0 else np.nan
-            turnover_1y_std = df_liquidity_1y['amount'].std()
-            low_quantile_turnover = df_liquidity_1y['amount'].quantile(0.05)
-            
-            aum_thousands = aum * 100000
-            df_fund_weekly = df_fund_daily.resample('W')['amount'].sum().to_frame('amount')
-            df_fund_monthly = df_fund_daily.resample('ME')['amount'].sum().to_frame('amount')
-            latest_week_turnover = df_fund_weekly['amount'].iloc[-1] if not df_fund_weekly.empty else 0
-            latest_month_turnover = df_fund_monthly['amount'].iloc[-1] if not df_fund_monthly.empty else 0
-            turnover_ratio_1w = latest_week_turnover / aum_thousands if aum_thousands > 0 else np.nan
-            turnover_ratio_1m = latest_month_turnover / aum_thousands if aum_thousands > 0 else np.nan
-            turnover_acceleration = latest_week_turnover / latest_month_turnover if latest_month_turnover > 0 else np.nan
-            turnover_quantile = np.nan
-            if not df_fund_weekly.empty and len(df_fund_weekly) >= 52:
-                df_weekly_12m = df_fund_weekly.iloc[-52:]
-                turnover_quantile = df_weekly_12m['amount'].rank(pct=True).iloc[-1]
-            is_divergence = False
-            price_change_1w = 0
-            df_price_1w = df_fund_daily.tail(5)
-            if len(df_price_1w) > 1:
-                price_change_1w = (df_price_1w['close'].iloc[-1] - df_price_1w['close'].iloc[0]) / df_price_1w['close'].iloc[0]
-            turnover_change_1w = 0
-            if len(df_fund_weekly) > 1:
-                turnover_change_1w = latest_week_turnover - df_fund_weekly['amount'].iloc[-2]
-            if np.sign(price_change_1w) != np.sign(turnover_change_1w):
-                is_divergence = True
-
-            # --- Calculate price and valuation metrics ---
-            df_full_data = get_price_and_valuation_data(fund_code, benchmark_code, three_years_ago, datetime.now().strftime('%Y%m%d'), pro)
-            
-            max_drawdown = np.nan
-            if 'adj_nav' in df_full_data.columns and not df_full_data['adj_nav'].isnull().all():
-                df_full_data['peak_nav'] = df_full_data['adj_nav'].cummax()
-                df_full_data['drawdown'] = (df_full_data['adj_nav'] - df_full_data['peak_nav']) / df_full_data['peak_nav']
-                max_drawdown = df_full_data['drawdown'].min()
-                
-            pe_percentile = calculate_percentiles(df_full_data, 'pe')
-            pb_percentile = calculate_percentiles(df_full_data, 'pb')
-            premium_rate_percentile = calculate_percentiles(df_full_data, 'premium_rate')
-            
-            annual_volatility = np.nan
-            if 'annual_volatility' in df_full_data.columns and not df_full_data['annual_volatility'].isnull().all():
-                annual_volatility = df_full_data['annual_volatility'].iloc[-1]
-            
-            # --- Consolidate all results ---
-            results_list.append({
+            # Prepare a default result dictionary to ensure all keys are present
+            result_row = {
                 'ts_code': fund_code,
                 'name': row['name'],
                 'industry': row['industry'],
                 'invest_type': row['invest_type'],
                 'benchmark': row['benchmark'],
                 'benchmark_code': benchmark_code,
-                'excess_return_mean': excess_return_mean,
-                'tracking_error': tracking_error,
-                'excess_return_5d_ma': ma_5,
-                'excess_return_10d_ma': ma_10,
-                'excess_return_15d_ma': ma_15,
-                'excess_return_20d_ma': ma_20,
-                'turnover_1y_mean': turnover_1y_mean,
-                'turnover_rate': turnover_rate,
-                'turnover_6m_vs_3y': turnover_6m_vs_3y,
-                'turnover_1y_std': turnover_1y_std,
-                'low_quantile_turnover': low_quantile_turnover,
-                'turnover_ratio_1w': turnover_ratio_1w,
-                'turnover_ratio_1m': turnover_ratio_1m,
-                'turnover_acceleration': turnover_acceleration,
-                'turnover_quantile': turnover_quantile,
-                'is_price_turnover_divergence': is_divergence,
-                'annual_volatility': annual_volatility,
-                'max_drawdown': max_drawdown,
-                'pe': df_full_data['pe'].iloc[-1] if 'pe' in df_full_data.columns and not df_full_data['pe'].isnull().all() else np.nan,
-                'pb': df_full_data['pb'].iloc[-1] if 'pb' in df_full_data.columns and not df_full_data['pb'].isnull().all() else np.nan,
-                'premium_rate': df_full_data['premium_rate'].iloc[-1] if 'premium_rate' in df_full_data.columns and not df_full_data['premium_rate'].isnull().all() else np.nan,
-                'pe_percentile': pe_percentile,
-                'pb_percentile': pb_percentile,
-                'premium_rate_percentile': premium_rate_percentile,
-            })
-            print(f"Successfully calculated all metrics for {fund_code}.")
+                'excess_return_mean': np.nan,
+                'tracking_error': np.nan,
+                'excess_return_5d_ma': np.nan,
+                'excess_return_10d_ma': np.nan,
+                'excess_return_15d_ma': np.nan,
+                'excess_return_20d_ma': np.nan,
+                'turnover_1y_mean': np.nan,
+                'turnover_rate': np.nan,
+                'turnover_6m_vs_3y': np.nan,
+                'turnover_1y_std': np.nan,
+                'low_quantile_turnover': np.nan,
+                'turnover_ratio_1w': np.nan,
+                'turnover_ratio_1m': np.nan,
+                'turnover_acceleration': np.nan,
+                'turnover_quantile': np.nan,
+                'is_price_turnover_divergence': np.nan,
+                'annual_volatility': np.nan,
+                'max_drawdown': np.nan,
+                'pe': np.nan,
+                'pb': np.nan,
+                'premium_rate': np.nan,
+                'pe_percentile': np.nan,
+                'pb_percentile': np.nan,
+                'premium_rate_percentile': np.nan,
+            }
+            try:
+                # Fetch daily fund and index data
+                df_fund_daily = pro.fund_daily(ts_code=fund_code, start_date=three_years_ago)
+                df_index_daily = pro.index_daily(ts_code=benchmark_code, start_date=three_years_ago)
+                if df_fund_daily.empty or df_index_daily.empty:
+                    print(f"警告: 未能获取 {fund_code} 或其基准 {benchmark_code} 的日线数据，跳过。")
+                    results_list.append(result_row)
+                    continue
+                
+                df_fund_daily['trade_date'] = pd.to_datetime(df_fund_daily['trade_date'])
+                df_fund_daily.set_index('trade_date', inplace=True)
+                df_fund_daily.sort_index(inplace=True)
+                df_index_daily['trade_date'] = pd.to_datetime(df_index_daily['trade_date'])
+                df_index_daily.set_index('trade_date', inplace=True)
+                df_index_daily.sort_index(inplace=True)
 
-        except Exception as e:
-            print(f"An error occurred while processing {fund_code}: {e}")
+                merged_data = pd.merge(df_fund_daily, df_index_daily, left_index=True, right_index=True, how='inner', suffixes=('_fund', '_index'))
+                
+                if merged_data.empty or len(merged_data) < 20:
+                    print(f"警告: {fund_code} 数据不足，跳过。")
+                    results_list.append(result_row)
+                    continue
 
-    df_results = pd.DataFrame(results_list)
+                merged_data['excess_return'] = merged_data['pct_chg_fund'] - merged_data['pct_chg_index']
+                
+                df_excess_3y = merged_data[merged_data.index >= three_years_ago]
+                excess_return_mean = df_excess_3y['excess_return'].mean()
+                tracking_error = df_excess_3y['excess_return'].std() * np.sqrt(250)
+                
+                ma_5 = merged_data['excess_return'].rolling(window=5).mean().iloc[-1]
+                ma_10 = merged_data['excess_return'].rolling(window=10).mean().iloc[-1]
+                ma_15 = merged_data['excess_return'].rolling(window=15).mean().iloc[-1]
+                ma_20 = merged_data['excess_return'].rolling(window=20).mean().iloc[-1]
+                
+                df_liquidity_1y = df_fund_daily[df_fund_daily.index >= (today - timedelta(days=365)).strftime('%Y%m%d')]
+                df_liquidity_3y = df_fund_daily[df_fund_daily.index >= three_years_ago]
+                df_liquidity_6m = df_liquidity_1y[df_liquidity_1y.index >= (today - timedelta(days=180)).strftime('%Y%m%d')]
+                
+                turnover_1y_mean = df_liquidity_1y['amount'].mean()
+                turnover_rate = turnover_1y_mean / (aum * 100000) if aum > 0 else np.nan
+                turnover_6m_mean = df_liquidity_6m['amount'].mean()
+                turnover_3y_mean = df_liquidity_3y['amount'].mean()
+                turnover_6m_vs_3y = turnover_6m_mean / turnover_3y_mean if turnover_3y_mean > 0 else np.nan
+                turnover_1y_std = df_liquidity_1y['amount'].std()
+                low_quantile_turnover = df_liquidity_1y['amount'].quantile(0.05)
+                
+                aum_thousands = aum * 100000
+                df_fund_weekly = df_fund_daily.resample('W')['amount'].sum().to_frame('amount')
+                df_fund_monthly = df_fund_daily.resample('ME')['amount'].sum().to_frame('amount')
+                latest_week_turnover = df_fund_weekly['amount'].iloc[-1] if not df_fund_weekly.empty else 0
+                latest_month_turnover = df_fund_monthly['amount'].iloc[-1] if not df_fund_monthly.empty else 0
+                turnover_ratio_1w = latest_week_turnover / aum_thousands if aum_thousands > 0 else np.nan
+                turnover_ratio_1m = latest_month_turnover / aum_thousands if aum_thousands > 0 else np.nan
+                turnover_acceleration = latest_week_turnover / latest_month_turnover if latest_month_turnover > 0 else np.nan
+                turnover_quantile = np.nan
+                if not df_fund_weekly.empty and len(df_fund_weekly) >= 52:
+                    df_weekly_12m = df_fund_weekly.iloc[-52:]
+                    turnover_quantile = df_weekly_12m['amount'].rank(pct=True).iloc[-1]
+                is_divergence = False
+                price_change_1w = 0
+                df_price_1w = df_fund_daily.tail(5)
+                if len(df_price_1w) > 1:
+                    price_change_1w = (df_price_1w['close'].iloc[-1] - df_price_1w['close'].iloc[0]) / df_price_1w['close'].iloc[0]
+                turnover_change_1w = 0
+                if len(df_fund_weekly) > 1:
+                    turnover_change_1w = latest_week_turnover - df_fund_weekly['amount'].iloc[-2]
+                if np.sign(price_change_1w) != np.sign(turnover_change_1w):
+                    is_divergence = True
+
+                # --- New: Calculate price and valuation metrics ---
+                df_full_data = get_price_and_valuation_data(fund_code, benchmark_code, three_years_ago, datetime.now().strftime('%Y%m%d'), pro)
+                
+                max_drawdown = np.nan
+                if 'adj_nav' in df_full_data.columns and not df_full_data['adj_nav'].isnull().all():
+                    df_full_data['peak_nav'] = df_full_data['adj_nav'].cummax()
+                    df_full_data['drawdown'] = (df_full_data['adj_nav'] - df_full_data['peak_nav']) / df_full_data['peak_nav']
+                    max_drawdown = df_full_data['drawdown'].min()
+                    
+                pe_percentile = calculate_percentiles(df_full_data, 'pe')
+                pb_percentile = calculate_percentiles(df_full_data, 'pb')
+                premium_rate_percentile = calculate_percentiles(df_full_data, 'premium_rate')
+                
+                annual_volatility = np.nan
+                if 'annual_volatility' in df_full_data.columns and not df_full_data['annual_volatility'].isnull().all():
+                    annual_volatility = df_full_data['annual_volatility'].iloc[-1]
+                
+                # --- Consolidate all results ---
+                result_row = {
+                    'ts_code': fund_code,
+                    'name': row['name'],
+                    'industry': row['industry'],
+                    'invest_type': row['invest_type'],
+                    'benchmark': row['benchmark'],
+                    'benchmark_code': benchmark_code,
+                    'excess_return_mean': excess_return_mean,
+                    'tracking_error': tracking_error,
+                    'excess_return_5d_ma': ma_5,
+                    'excess_return_10d_ma': ma_10,
+                    'excess_return_15d_ma': ma_15,
+                    'excess_return_20d_ma': ma_20,
+                    'turnover_1y_mean': turnover_1y_mean,
+                    'turnover_rate': turnover_rate,
+                    'turnover_6m_vs_3y': turnover_6m_vs_3y,
+                    'turnover_1y_std': turnover_1y_std,
+                    'low_quantile_turnover': low_quantile_turnover,
+                    'turnover_ratio_1w': turnover_ratio_1w,
+                    'turnover_ratio_1m': turnover_ratio_1m,
+                    'turnover_acceleration': turnover_acceleration,
+                    'turnover_quantile': turnover_quantile,
+                    'is_price_turnover_divergence': is_divergence,
+                    'annual_volatility': annual_volatility,
+                    'max_drawdown': max_drawdown,
+                    'pe': df_full_data['pe'].iloc[-1] if 'pe' in df_full_data.columns and not df_full_data['pe'].isnull().all() else np.nan,
+                    'pb': df_full_data['pb'].iloc[-1] if 'pb' in df_full_data.columns and not df_full_data['pb'].isnull().all() else np.nan,
+                    'premium_rate': df_full_data['premium_rate'].iloc[-1] if 'premium_rate' in df_full_data.columns and not df_full_data['premium_rate'].isnull().all() else np.nan,
+                    'pe_percentile': pe_percentile,
+                    'pb_percentile': pb_percentile,
+                    'premium_rate_percentile': premium_rate_percentile,
+                }
+                print(f"Successfully calculated all metrics for {fund_code}.")
+                results_list.append(result_row)
+
+            except Exception as e:
+                print(f"An error occurred while processing {fund_code}: {e}")
+                results_list.append(result_row)
     
-    # Merge original fund list with calculation results
-    df_funds_with_metrics = pd.merge(df_funds, df_results, on='ts_code', how='left', suffixes=('_original', '_metrics'))
+    df_results = pd.DataFrame(results_list)
+
+    if df_results.empty:
+        print("\n警告: 最终结果列表为空，无法生成报告。请检查筛选条件和数据来源。")
+        # Create an empty DataFrame with the expected columns
+        df_funds_with_metrics = pd.DataFrame(columns=['ts_code', 'name', 'industry', 'invest_type', 'benchmark', 'benchmark_code',
+                                                     'excess_return_mean', 'tracking_error', 'excess_return_5d_ma',
+                                                     'excess_return_10d_ma', 'excess_return_15d_ma', 'excess_return_20d_ma',
+                                                     'turnover_1y_mean', 'turnover_rate', 'turnover_6m_vs_3y',
+                                                     'turnover_1y_std', 'low_quantile_turnover', 'turnover_ratio_1w',
+                                                     'turnover_ratio_1m', 'turnover_acceleration', 'turnover_quantile',
+                                                     'is_price_turnover_divergence', 'annual_volatility', 'max_drawdown',
+                                                     'pe', 'pb', 'premium_rate', 'pe_percentile', 'pb_percentile',
+                                                     'premium_rate_percentile'])
+    else:
+        # Merge original fund list with calculation results
+        df_funds_with_metrics = pd.merge(df_funds, df_results, on='ts_code', how='left', suffixes=('_original', '_metrics'))
     
     print("\n--- 5. 计算行业内部相对成交额占比 ---")
-    df_industry_turnover = df_funds_with_metrics.groupby('industry')['turnover_ratio_1w'].transform('sum')
-    df_funds_with_metrics['turnover_pct_in_industry'] = df_funds_with_metrics['turnover_ratio_1w'] / df_industry_turnover
-    df_funds_with_metrics['turnover_pct_in_industry_quantile'] = df_funds_with_metrics['turnover_pct_in_industry'].rank(pct=True)
+    if not df_funds_with_metrics.empty:
+        df_industry_turnover = df_funds_with_metrics.groupby('industry')['turnover_ratio_1w'].transform('sum')
+        df_funds_with_metrics['turnover_pct_in_industry'] = df_funds_with_metrics['turnover_ratio_1w'] / df_industry_turnover
+        df_funds_with_metrics['turnover_pct_in_industry_quantile'] = df_funds_with_metrics['turnover_pct_in_industry'].rank(pct=True)
 
     df_funds_with_metrics.dropna(subset=['tracking_error'], inplace=True)
     df_funds_with_metrics.drop_duplicates(subset=['ts_code'], inplace=True)
