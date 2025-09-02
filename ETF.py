@@ -346,11 +346,11 @@ def run_data_fetcher():
         # Merge original fund list with calculation results
         df_funds_with_metrics = pd.merge(df_funds, df_results, on='ts_code', how='left', suffixes=('_original', '_metrics'))
     
-    print("\n--- 5. 计算行业内部相对成交额占比 ---")
+    '''print("\n--- 5. 计算行业内部相对成交额占比 ---")
     if not df_funds_with_metrics.empty:
         df_industry_turnover = df_funds_with_metrics.groupby('industry')['turnover_ratio_1w'].transform('sum')
         df_funds_with_metrics['turnover_pct_in_industry'] = df_funds_with_metrics['turnover_ratio_1w'] / df_industry_turnover
-        df_funds_with_metrics['turnover_pct_in_industry_quantile'] = df_funds_with_metrics['turnover_pct_in_industry'].rank(pct=True)
+        df_funds_with_metrics['turnover_pct_in_industry_quantile'] = df_funds_with_metrics['turnover_pct_in_industry'].rank(pct=True)'''
 
     df_funds_with_metrics.dropna(subset=['tracking_error'], inplace=True)
     df_funds_with_metrics.drop_duplicates(subset=['ts_code'], inplace=True)
@@ -363,3 +363,4 @@ def run_data_fetcher():
 
 if __name__ == '__main__':
     run_data_fetcher()
+
