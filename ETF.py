@@ -210,17 +210,26 @@ def calculate_metrics(pro, df_funds):
             # 折价率及变化 (依赖 df_fund_daily 和 df_fund_nav)
             if 'unit_nav' in merged_data.columns and 'close_fund' in merged_data.columns:
                 merged_data['discount_rate'] = (merged_data['unit_nav'] - merged_data['close_fund']) / merged_data['unit_nav']
-                metrics['latest_discount_rate'] = merged_data['discount_rate'].iloc[-1] if not merged_data.empty else np.nan
                 
-                df_discount_1y = merged_data['discount_rate'][merged_data.index >= one_year_ago].dropna()
-                metrics['discount_quantile_1y'] = df_discount_1y.rank(pct=True).iloc[-1] if len(df_discount_1y) > 1 else np.nan
-                df_discount_3y = merged_data['discount_rate'][merged_data.index >= three_years_ago].dropna()
-                metrics['discount_quantile_3y'] = df_discount_3y.rank(pct=True).iloc[-1] if len(df_discount_3y) > 1 else np.nan
-
-                if len(merged_data) > 5:
-                    metrics['change_5d_discount'] = merged_data['discount_rate'].iloc[-1] - merged_data['discount_rate'].iloc[-6]
-                if len(merged_data) > 10:
-                    metrics['change_10d_discount'] = merged_data['discount_rate'].iloc[-1] - merged_data['discount_rate'].iloc[-11]
+                # --- 核心改动：只使用非空值进行计算 ---
+                df_discount_rates = merged_data['discount_rate'].dropna()
+                
+                if not df_discount_rates.empty:
+                    metrics['latest_discount_rate'] = df_discount_rates.iloc[-1]
+                    
+                    if len(df_discount_rates) > 1:
+                        df_discount_1y = df_discount_rates[df_discount_rates.index >= one_year_ago]
+                        if len(df_discount_1y) > 1:
+                            metrics['discount_quantile_1y'] = df_discount_1y.rank(pct=True).iloc[-1]
+                        
+                        df_discount_3y = df_discount_rates[df_discount_rates.index >= three_years_ago]
+                        if len(df_discount_3y) > 1:
+                            metrics['discount_quantile_3y'] = df_discount_3y.rank(pct=True).iloc[-1]
+        
+                        if len(df_discount_rates) > 5:
+                            metrics['change_5d_discount'] = df_discount_rates.iloc[-1] - df_discount_rates.iloc[-6]
+                        if len(df_discount_rates) > 10:
+                            metrics['change_10d_discount'] = df_discount_rates.iloc[-1] - df_discount_rates.iloc[-11]
 
             # 流动性与情绪指标 (依赖 df_fund_daily)
             if 'amount' in merged_data.columns and 'close_fund' in merged_data.columns:
@@ -315,3 +324,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
