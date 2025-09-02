@@ -11,7 +11,6 @@ ETF监控模型
 创建日期：[30/08/2025]
 """
 
-
 import tushare as ts
 import pandas as pd
 import re
@@ -19,6 +18,7 @@ from datetime import datetime, timedelta
 import numpy as np
 import os
 
+# --- Tushare initialization ---
 token = os.environ.get('TUSHARE_TOKEN')
 if token:
     ts.set_token(token)
@@ -26,26 +26,26 @@ if token:
 else:
     raise ValueError("TUSHARE_TOKEN is not set in environment variables.")
 
-# 价格和估值数据获取与计算函数
+# --- Price and Valuation Data Fetcher ---
 def get_price_and_valuation_data(ts_code, benchmark_code, start_date, end_date, pro):
     """
-    获取单个ETF的价格、净值、指数估值等数据并计算相关指标
+    Fetches price, NAV, and index valuation data for a single ETF and calculates metrics.
     """
-    # 1. 获取ETF日线行情数据
+    # 1. Fetch ETF daily data
     df_daily = pro.fund_daily(ts_code=ts_code, start_date=start_date, end_date=end_date, fields='ts_code,trade_date,close,pre_close,pct_chg')
     df_daily['trade_date'] = pd.to_datetime(df_daily['trade_date'])
     df_daily.set_index('trade_date', inplace=True)
     
-    # 2. 获取ETF单位净值数据
+    # 2. Fetch ETF NAV data
     df_nav = pro.fund_nav(ts_code=ts_code, start_date=start_date, end_date=end_date, fields='ts_code,nav_date,unit_nav,adj_nav')
     df_nav['nav_date'] = pd.to_datetime(df_nav['nav_date'])
     df_nav.set_index('nav_date', inplace=True)
     
-    # 3. 合并数据
+    # 3. Merge data
     df_merged = pd.merge(df_daily, df_nav, left_index=True, right_index=True, how='outer')
     df_merged.sort_index(inplace=True)
     
-    # 4. 获取跟踪指数的估值数据 (PE/PB)
+    # 4. Fetch benchmark index valuation (PE/PB)
     if benchmark_code:
         df_index_basic = pro.index_dailybasic(ts_code=benchmark_code, start_date=start_date, end_date=end_date, fields='trade_date,pe,pe_ttm,pb')
         if df_index_basic.empty:
@@ -55,14 +55,14 @@ def get_price_and_valuation_data(ts_code, benchmark_code, start_date, end_date, 
             df_index_basic.set_index('trade_date', inplace=True)
             df_merged = pd.merge(df_merged, df_index_basic, left_index=True, right_index=True, how='left')
     
-    # 5. 计算价格类指标
+    # 5. Calculate price metrics
     df_merged['pct_chg_decimal'] = df_merged['pct_chg'] / 100
     df_merged['annual_volatility'] = df_merged['pct_chg_decimal'].rolling(window=252).std() * np.sqrt(252)
     df_merged['premium_rate'] = (df_merged['close'] - df_merged['unit_nav']) / df_merged['unit_nav']
     
     return df_merged
 
-# 计算历史分位点
+# --- Calculate Historical Percentiles ---
 def calculate_percentiles(df, col_name, window=None):
     if col_name not in df.columns or df[col_name].isnull().all():
         return np.nan
@@ -70,17 +70,17 @@ def calculate_percentiles(df, col_name, window=None):
     series = df[col_name].dropna()
     if window:
         series = series.tail(window)
-        if len(series) < window * 0.5: # 数据量不足，返回空值
+        if len(series) < window * 0.5: # Not enough data
             return np.nan
     
     current_value = series.iloc[-1]
-    # 使用秩次百分比计算分位点
+    # Calculate percentile rank
     percentile = (series.rank(pct=True).iloc[-1])
     return percentile
 
 def run_data_fetcher():
     """
-    执行整个数据获取和指标计算流程。
+    Executes the entire data fetching and metric calculation process.
     """
     print("--- 1. 获取并筛选目标行业ETF ---")
     df_etf_list = pro.fund_basic(market='E')
@@ -103,9 +103,11 @@ def run_data_fetcher():
                            (df_all_funds[benchmark_col].str.contains('|'.join(keywords_healthcare), na=False))
 
     df_selected_funds = df_all_funds[condition_consumer | condition_tech | condition_healthcare].copy()
-    df_selected_funds.loc[condition_consumer[condition_consumer.index], 'industry'] = '消费'
-    df_selected_funds.loc[condition_tech[condition_tech.index], 'industry'] = '科技'
-    df_selected_funds.loc[condition_healthcare[condition_healthcare.index], 'industry'] = '医疗'
+
+    # 修正了 SettingWithCopyWarning 的代码
+    df_selected_funds.loc[condition_consumer, 'industry'] = '消费'
+    df_selected_funds.loc[condition_tech, 'industry'] = '科技'
+    df_selected_funds.loc[condition_healthcare, 'industry'] = '医疗'
 
     selected_columns = ['ts_code', 'name', 'market', 'list_date', 'm_fee', 'c_fee', 'issue_amount', 'benchmark', 'invest_type', 'industry']
     df_lean = df_selected_funds.loc[:, selected_columns]
@@ -136,7 +138,6 @@ def run_data_fetcher():
             '创业板指数': '399006.SZ',
             '中证消费电子主题指数': '931104.CSI',
             '上证科创板芯片指数': '000685.SH',
-            # 手动
         }
         if cleaned_fund_name in manual_map:
             return manual_map[cleaned_fund_name]
@@ -165,7 +166,6 @@ def run_data_fetcher():
     print("\n--- 4. 计算所有指标 ---")
     results_list = []
     today = datetime.now().date()
-    one_year_ago = (today - timedelta(days=365)).strftime('%Y%m%d')
     three_years_ago = (today - timedelta(days=3 * 365)).strftime('%Y%m%d')
 
     for index, row in df_funds.iterrows():
@@ -205,7 +205,7 @@ def run_data_fetcher():
             ma_15 = merged_data['excess_return'].rolling(window=15).mean().iloc[-1]
             ma_20 = merged_data['excess_return'].rolling(window=20).mean().iloc[-1]
             
-            df_liquidity_1y = df_fund_daily[df_fund_daily.index >= one_year_ago]
+            df_liquidity_1y = df_fund_daily[df_fund_daily.index >= (today - timedelta(days=365)).strftime('%Y%m%d')]
             df_liquidity_3y = df_fund_daily[df_fund_daily.index >= three_years_ago]
             df_liquidity_6m = df_liquidity_1y[df_liquidity_1y.index >= (today - timedelta(days=180)).strftime('%Y%m%d')]
             
@@ -240,7 +240,7 @@ def run_data_fetcher():
             if np.sign(price_change_1w) != np.sign(turnover_change_1w):
                 is_divergence = True
 
-            # ----------------- 价格和估值指标计算 -----------------
+            # --- Calculate price and valuation metrics ---
             df_full_data = get_price_and_valuation_data(fund_code, benchmark_code, three_years_ago, datetime.now().strftime('%Y%m%d'), pro)
             
             max_drawdown = np.nan
@@ -257,7 +257,7 @@ def run_data_fetcher():
             if 'annual_volatility' in df_full_data.columns and not df_full_data['annual_volatility'].isnull().all():
                 annual_volatility = df_full_data['annual_volatility'].iloc[-1]
             
-            # ----------------- 整合所有结果 -----------------
+            # --- Consolidate all results ---
             results_list.append({
                 'ts_code': fund_code,
                 'name': row['name'],
@@ -290,14 +290,14 @@ def run_data_fetcher():
                 'pb_percentile': pb_percentile,
                 'premium_rate_percentile': premium_rate_percentile,
             })
-            print(f"已成功计算 {fund_code} 的所有指标。")
+            print(f"Successfully calculated all metrics for {fund_code}.")
 
         except Exception as e:
-            print(f"处理 {fund_code} 时发生错误: {e}")
+            print(f"An error occurred while processing {fund_code}: {e}")
 
     df_results = pd.DataFrame(results_list)
     
-    # 将原始基金列表与计算结果合并
+    # Merge original fund list with calculation results
     df_funds_with_metrics = pd.merge(df_funds, df_results, on='ts_code', how='left', suffixes=('_original', '_metrics'))
     
     print("\n--- 5. 计算行业内部相对成交额占比 ---")
@@ -310,11 +310,9 @@ def run_data_fetcher():
 
     output_filename = 'etf_metrics_daily_report.csv'
     df_funds_with_metrics.to_csv(output_filename, index=False, encoding='utf-8-sig')
-    print(f"\n最终包含所有指标的基金列表已保存到 {output_filename} 文件中。")
+    print(f"\nFinal list of funds with all metrics saved to {output_filename}.")
     
     return df_funds_with_metrics
 
 if __name__ == '__main__':
     run_data_fetcher()
-
-
