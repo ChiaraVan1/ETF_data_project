@@ -26,7 +26,7 @@ if token:
 else:
     raise ValueError("TUSHARE_TOKEN is not set in environment variables.")
 
-
+# 价格和估值数据获取与计算函数
 def get_price_and_valuation_data(ts_code, benchmark_code, start_date, end_date, pro):
     """
     获取单个ETF的价格、净值、指数估值等数据并计算相关指标
@@ -46,13 +46,14 @@ def get_price_and_valuation_data(ts_code, benchmark_code, start_date, end_date, 
     df_merged.sort_index(inplace=True)
     
     # 4. 获取跟踪指数的估值数据 (PE/PB)
-    df_index_basic = pro.index_dailybasic(ts_code=benchmark_code, start_date=start_date, end_date=end_date, fields='trade_date,pe,pe_ttm,pb')
-    if df_index_basic.empty:
-        print(f"警告: 未能获取指数 {benchmark_code} 的估值数据。")
-    else:
-        df_index_basic['trade_date'] = pd.to_datetime(df_index_basic['trade_date'])
-        df_index_basic.set_index('trade_date', inplace=True)
-        df_merged = pd.merge(df_merged, df_index_basic, left_index=True, right_index=True, how='left')
+    if benchmark_code:
+        df_index_basic = pro.index_dailybasic(ts_code=benchmark_code, start_date=start_date, end_date=end_date, fields='trade_date,pe,pe_ttm,pb')
+        if df_index_basic.empty:
+            print(f"警告: 未能获取指数 {benchmark_code} 的估值数据。")
+        else:
+            df_index_basic['trade_date'] = pd.to_datetime(df_index_basic['trade_date'])
+            df_index_basic.set_index('trade_date', inplace=True)
+            df_merged = pd.merge(df_merged, df_index_basic, left_index=True, right_index=True, how='left')
     
     # 5. 计算价格类指标
     df_merged['pct_chg_decimal'] = df_merged['pct_chg'] / 100
@@ -61,11 +62,8 @@ def get_price_and_valuation_data(ts_code, benchmark_code, start_date, end_date, 
     
     return df_merged
 
-
+# 计算历史分位点
 def calculate_percentiles(df, col_name, window=None):
-    """
-    计算历史分位点
-    """
     if col_name not in df.columns or df[col_name].isnull().all():
         return np.nan
     
@@ -97,9 +95,12 @@ def run_data_fetcher():
     name_col = 'name'
     benchmark_col = 'benchmark'
 
-    condition_consumer = (df_all_funds[name_col].str.contains('|'.join(keywords_consumer), na=False)) |                          (df_all_funds[benchmark_col].str.contains('|'.join(keywords_consumer), na=False))
-    condition_tech = (df_all_funds[name_col].str.contains('|'.join(keywords_tech), na=False)) |                      (df_all_funds[benchmark_col].str.contains('|'.join(keywords_tech), na=False))
-    condition_healthcare = (df_all_funds[name_col].str.contains('|'.join(keywords_healthcare), na=False)) |                            (df_all_funds[benchmark_col].str.contains('|'.join(keywords_healthcare), na=False))
+    condition_consumer = (df_all_funds[name_col].str.contains('|'.join(keywords_consumer), na=False)) | \
+                         (df_all_funds[benchmark_col].str.contains('|'.join(keywords_consumer), na=False))
+    condition_tech = (df_all_funds[name_col].str.contains('|'.join(keywords_tech), na=False)) | \
+                     (df_all_funds[benchmark_col].str.contains('|'.join(keywords_tech), na=False))
+    condition_healthcare = (df_all_funds[name_col].str.contains('|'.join(keywords_healthcare), na=False)) | \
+                           (df_all_funds[benchmark_col].str.contains('|'.join(keywords_healthcare), na=False))
 
     df_selected_funds = df_all_funds[condition_consumer | condition_tech | condition_healthcare].copy()
     df_selected_funds.loc[condition_consumer[condition_consumer.index], 'industry'] = '消费'
@@ -119,7 +120,7 @@ def run_data_fetcher():
 
     df_lean['cleaned_benchmark_name'] = df_lean['benchmark'].apply(clean_benchmark_name)
 
-    print("--- 2. 匹配基金与其基准指数 ---")
+    print("\n--- 2. 匹配基金与其基准指数 ---")
     df_csi = pro.index_basic(market='CSI')
     df_sse = pro.index_basic(market='SSE')
     df_szse = pro.index_basic(market='SZSE')
@@ -135,20 +136,20 @@ def run_data_fetcher():
             '创业板指数': '399006.SZ',
             '中证消费电子主题指数': '931104.CSI',
             '上证科创板芯片指数': '000685.SH',
-            # 待添加 
+            # 手动
         }
         if cleaned_fund_name in manual_map:
             return manual_map[cleaned_fund_name]
         
         for index, idx_row in df_index_basic.iterrows():
-            if pd.notna(cleaned_fund_name) and pd.notna(idx_row['name']) and idx_row['name'] in cleaned_fund_name and                pd.notna(fund_list_date) and pd.notna(idx_row['list_date']) and fund_list_date >= idx_row['list_date']:
+            if pd.notna(cleaned_fund_name) and pd.notna(idx_row['name']) and idx_row['name'] in cleaned_fund_name and \
+               pd.notna(fund_list_date) and pd.notna(idx_row['list_date']) and fund_list_date >= idx_row['list_date']:
                 return idx_row['ts_code']
         return None
 
     df_lean['benchmark_code'] = df_lean.apply(robust_map_name_to_code, axis=1, args=(df_index_basic,))
 
-    print("
---- 3. 筛选并保存最终的基金列表 ---")
+    print("\n--- 3. 筛选并保存最终的基金列表 ---")
     df_funds = df_lean.copy()
     unmatched_funds = df_funds[df_funds['benchmark_code'].isnull()]
     df_funds.to_csv('etf_funds_list_raw.csv', index=False, encoding='utf-8-sig')
@@ -159,11 +160,9 @@ def run_data_fetcher():
     print(f"最终筛选后，可用于计算的基金数量: {len(df_funds)} 只")
     
     if not unmatched_funds.empty:
-        print(f"
-未能自动匹配的基金数量: {len(unmatched_funds)} 只")
+        print(f"\n未能自动匹配的基金数量: {len(unmatched_funds)} 只")
 
-    print("
---- 4. 计算所有指标 ---")
+    print("\n--- 4. 计算所有指标 ---")
     results_list = []
     today = datetime.now().date()
     one_year_ago = (today - timedelta(days=365)).strftime('%Y%m%d')
@@ -301,8 +300,7 @@ def run_data_fetcher():
     # 将原始基金列表与计算结果合并
     df_funds_with_metrics = pd.merge(df_funds, df_results, on='ts_code', how='left', suffixes=('_original', '_metrics'))
     
-    print("
---- 5. 计算行业内部相对成交额占比 ---")
+    print("\n--- 5. 计算行业内部相对成交额占比 ---")
     df_industry_turnover = df_funds_with_metrics.groupby('industry')['turnover_ratio_1w'].transform('sum')
     df_funds_with_metrics['turnover_pct_in_industry'] = df_funds_with_metrics['turnover_ratio_1w'] / df_industry_turnover
     df_funds_with_metrics['turnover_pct_in_industry_quantile'] = df_funds_with_metrics['turnover_pct_in_industry'].rank(pct=True)
@@ -312,8 +310,7 @@ def run_data_fetcher():
 
     output_filename = 'etf_metrics_daily_report.csv'
     df_funds_with_metrics.to_csv(output_filename, index=False, encoding='utf-8-sig')
-    print(f"
-最终包含所有指标的基金列表已保存到 {output_filename} 文件中。")
+    print(f"\n最终包含所有指标的基金列表已保存到 {output_filename} 文件中。")
     
     return df_funds_with_metrics
 
