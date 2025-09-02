@@ -74,8 +74,8 @@ def run_data_fetcher():
     df_csi = pro.index_basic(market='CSI')
     df_sse = pro.index_basic(market='SSE')
     df_szse = pro.index_basic(market='SZSE')
-    df_index_basic = pd.concat([df_csi, df_sse, df_szse], ignore_index=True)
-    df_index_basic['list_date'] = pd.to_datetime(df_index_basic['list_date'], errors='coerce')
+    df_index_basic_map = pd.concat([df_csi, df_sse, df_szse], ignore_index=True)
+    df_index_basic_map['list_date'] = pd.to_datetime(df_index_basic_map['list_date'], errors='coerce')
 
     def robust_map_name_to_code(row, df_index_basic):
         cleaned_fund_name = row['cleaned_benchmark_name']
@@ -97,7 +97,7 @@ def run_data_fetcher():
                 return idx_row['ts_code']
         return None
 
-    df_lean['benchmark_code'] = df_lean.apply(robust_map_name_to_code, axis=1, args=(df_index_basic,))
+    df_lean['benchmark_code'] = df_lean.apply(robust_map_name_to_code, axis=1, args=(df_index_basic_map,))
 
     print("\n--- 3. 筛选并保存最终的基金列表 ---")
     df_funds = df_lean.copy()
@@ -124,22 +124,32 @@ def run_data_fetcher():
         fund_code = row['ts_code']
         benchmark_code = row['benchmark_code']
         aum = row['issue_amount']
+        
+        data_status = 'ok'
+        print(f"\n处理基金 {fund_code} ({row['name']})...")
 
         try:
-            # --- 核心数据获取 ---
-            # 基金日行情 (收盘价, 成交量)
+            # --- 核心数据获取（健壮性处理） ---
             df_fund_daily = pro.fund_daily(ts_code=fund_code, start_date=three_years_ago)
-            # 基金净值 (单位净值)
+            if df_fund_daily.empty:
+                print(f"  警告: 未能获取 {fund_code} 的日行情数据，将跳过部分指标计算。")
+                data_status += ';fund_daily_missing'
+            
             df_fund_nav = pro.fund_nav(ts_code=fund_code, start_date=three_years_ago)
-            # 指数日行情
+            if df_fund_nav.empty:
+                print(f"  警告: 未能获取 {fund_code} 的净值数据，将跳过折价率和最大回撤计算。")
+                data_status += ';fund_nav_missing'
+            
             df_index_daily = pro.index_daily(ts_code=benchmark_code, start_date=three_years_ago)
-            # 指数估值 (PE/PB)
+            if df_index_daily.empty:
+                print(f"  警告: 未能获取基准 {benchmark_code} 的日行情数据，将跳过超额收益和跟踪误差计算。")
+                data_status += ';index_daily_missing'
+            
             df_index_dailybasic = pro.index_dailybasic(ts_code=benchmark_code, start_date=three_years_ago, fields='ts_code,trade_date,pe,pe_ttm,pb')
-
-            if df_fund_daily.empty or df_index_daily.empty or df_fund_nav.empty or df_index_dailybasic.empty:
-                print(f"警告: 未能获取 {fund_code} 或其基准 {benchmark_code} 的完整日线数据，跳过。")
-                continue
-
+            if df_index_dailybasic.empty:
+                print(f"  警告: 未能获取基准 {benchmark_code} 的估值数据，将跳过PE/PB计算。")
+                data_status += ';index_dailybasic_missing'
+            
             # 数据预处理与合并
             df_fund_daily['trade_date'] = pd.to_datetime(df_fund_daily['trade_date'])
             df_fund_nav['nav_date'] = pd.to_datetime(df_fund_nav['nav_date'])
@@ -150,108 +160,111 @@ def run_data_fetcher():
             df_fund_nav.set_index('nav_date', inplace=True)
             df_index_daily.set_index('trade_date', inplace=True)
             df_index_dailybasic.set_index('trade_date', inplace=True)
+            
+            # 使用 left join 确保即使数据缺失，基金记录也不会被丢弃
+            merged_data = pd.merge(df_fund_daily, df_fund_nav[['unit_nav']], left_index=True, right_index=True, how='left')
+            merged_data = pd.merge(merged_data, df_index_daily[['pct_chg']], left_index=True, right_index=True, how='left', suffixes=('_fund', '_index'))
+            
+            # 初始化所有指标为NaN
+            (excess_return_mean, tracking_error, ma_5, ma_10, ma_15, ma_20,
+            turnover_1y_mean, turnover_rate, turnover_6m_vs_3y, turnover_1y_std,
+            low_quantile_turnover, turnover_ratio_1w, turnover_ratio_1m,
+            turnover_acceleration, turnover_quantile, is_divergence,
+            annualized_volatility, max_drawdown, latest_discount_rate,
+            discount_quantile_1y, discount_quantile_3y, change_5d_discount, change_10d_discount,
+            latest_pe_ttm, latest_pb, pe_3y_low, pe_3y_high, pb_3y_low, pb_3y_high,
+            pe_quantile_3y, pb_quantile_3y) = (np.nan,) * 32
 
-            merged_data = pd.merge(df_fund_daily, df_fund_nav[['unit_nav']], left_index=True, right_index=True, how='inner')
-            merged_data = pd.merge(merged_data, df_index_daily[['pct_chg']], left_index=True, right_index=True, how='inner', suffixes=('_fund', '_index'))
+            # --- 计算指标（仅在数据可用时）---
             
-            if merged_data.empty or len(merged_data) < 20:
-                print(f"警告: {fund_code} 基础数据不足，跳过。")
-                continue
-            
-            # --- 计算超额收益和跟踪误差 ---
-            merged_data['excess_return'] = merged_data['pct_chg_fund'] - merged_data['pct_chg_index']
-            
-            df_excess_3y = merged_data[merged_data.index >= three_years_ago]
-            excess_return_mean = df_excess_3y['excess_return'].mean()
-            tracking_error = df_excess_3y['excess_return'].std() * np.sqrt(250)
-            
-            ma_5 = merged_data['excess_return'].rolling(window=5).mean().iloc[-1]
-            ma_10 = merged_data['excess_return'].rolling(window=10).mean().iloc[-1]
-            ma_15 = merged_data['excess_return'].rolling(window=15).mean().iloc[-1]
-            ma_20 = merged_data['excess_return'].rolling(window=20).mean().iloc[-1]
+            # 超额收益和跟踪误差 (依赖 df_fund_daily 和 df_index_daily)
+            if not df_fund_daily.empty and not df_index_daily.empty and len(merged_data.dropna(subset=['pct_chg_fund', 'pct_chg_index'])) > 20:
+                merged_data['excess_return'] = merged_data['pct_chg_fund'] - merged_data['pct_chg_index']
+                df_excess_3y = merged_data[merged_data.index >= three_years_ago]
+                excess_return_mean = df_excess_3y['excess_return'].mean()
+                tracking_error = df_excess_3y['excess_return'].std() * np.sqrt(250)
+                ma_5 = merged_data['excess_return'].rolling(window=5).mean().iloc[-1]
+                ma_10 = merged_data['excess_return'].rolling(window=10).mean().iloc[-1]
+                ma_15 = merged_data['excess_return'].rolling(window=15).mean().iloc[-1]
+                ma_20 = merged_data['excess_return'].rolling(window=20).mean().iloc[-1]
 
-            # --- 计算流动性与市场情绪指标 ---
-            df_liquidity_1y = merged_data[merged_data.index >= one_year_ago]
-            df_liquidity_3y = merged_data[merged_data.index >= three_years_ago]
-            df_liquidity_6m = df_liquidity_1y[df_liquidity_1y.index >= (today - timedelta(days=180)).strftime('%Y%m%d')]
+            # 收益波动率 (依赖 df_fund_daily)
+            if not df_fund_daily.empty:
+                annualized_volatility = df_fund_daily['pct_chg'].std() * np.sqrt(250)
             
-            turnover_1y_mean = df_liquidity_1y['amount'].mean()
-            turnover_rate = turnover_1y_mean / (aum * 100000) if aum > 0 else np.nan
-            turnover_6m_mean = df_liquidity_6m['amount'].mean()
-            turnover_3y_mean = df_liquidity_3y['amount'].mean()
-            turnover_6m_vs_3y = turnover_6m_mean / turnover_3y_mean if turnover_3y_mean > 0 else np.nan
-            turnover_1y_std = df_liquidity_1y['amount'].std()
-            low_quantile_turnover = df_liquidity_1y['amount'].quantile(0.05)
+            # 最大回撤 (依赖 df_fund_daily)
+            if not df_fund_daily.empty:
+                df_fund_daily['cum_close'] = (1 + df_fund_daily['pct_chg'] / 100).cumprod()
+                df_fund_daily['max_close'] = df_fund_daily['cum_close'].cummax()
+                df_fund_daily['drawdown'] = (df_fund_daily['max_close'] - df_fund_daily['cum_close']) / df_fund_daily['max_close']
+                max_drawdown = df_fund_daily['drawdown'].max()
             
-            aum_thousands = aum * 100000
-            df_fund_weekly = merged_data.resample('W')['amount'].sum().to_frame('amount')
-            df_fund_monthly = merged_data.resample('ME')['amount'].sum().to_frame('amount')
-            latest_week_turnover = df_fund_weekly['amount'].iloc[-1] if not df_fund_weekly.empty else 0
-            latest_month_turnover = df_fund_monthly['amount'].iloc[-1] if not df_fund_monthly.empty else 0
-            turnover_ratio_1w = latest_week_turnover / aum_thousands if aum_thousands > 0 else np.nan
-            turnover_ratio_1m = latest_month_turnover / aum_thousands if aum_thousands > 0 else np.nan
-            turnover_acceleration = latest_week_turnover / latest_month_turnover if latest_month_turnover > 0 else np.nan
-            turnover_quantile = np.nan
-            if not df_fund_weekly.empty and len(df_fund_weekly) >= 52:
-                df_weekly_12m = df_fund_weekly.iloc[-52:]
-                turnover_quantile = df_weekly_12m['amount'].rank(pct=True).iloc[-1]
-            is_divergence = False
-            price_change_1w = 0
-            df_price_1w = merged_data.tail(5)
-            if len(df_price_1w) > 1:
-                price_change_1w = (df_price_1w['close_fund'].iloc[-1] - df_price_1w['close_fund'].iloc[0]) / df_price_1w['close_fund'].iloc[0]
-            turnover_change_1w = 0
-            if len(df_fund_weekly) > 1:
-                turnover_change_1w = latest_week_turnover - df_fund_weekly['amount'].iloc[-2]
-            if np.sign(price_change_1w) != np.sign(turnover_change_1w):
-                is_divergence = True
+            # 折价率及变化 (依赖 df_fund_daily 和 df_fund_nav)
+            if not df_fund_daily.empty and not df_fund_nav.empty and 'unit_nav' in merged_data.columns:
+                merged_data['discount_rate'] = (merged_data['unit_nav'] - merged_data['close_fund']) / merged_data['unit_nav']
+                latest_discount_rate = merged_data['discount_rate'].iloc[-1] if not merged_data.empty else np.nan
+                
+                df_discount_1y = merged_data['discount_rate'][merged_data.index >= one_year_ago].dropna()
+                discount_quantile_1y = df_discount_1y.rank(pct=True).iloc[-1] if len(df_discount_1y) > 1 else np.nan
+                df_discount_3y = merged_data['discount_rate'][merged_data.index >= three_years_ago].dropna()
+                discount_quantile_3y = df_discount_3y.rank(pct=True).iloc[-1] if len(df_discount_3y) > 1 else np.nan
 
-            # --- 新增指标计算部分 ---
-            
-            # 1. 收益波动率
-            daily_volatility = merged_data['pct_chg_fund'].std()
-            annualized_volatility = daily_volatility * np.sqrt(250)
+                if len(merged_data) > 5:
+                    change_5d_discount = merged_data['discount_rate'].iloc[-1] - merged_data['discount_rate'].iloc[-6]
+                if len(merged_data) > 10:
+                    change_10d_discount = merged_data['discount_rate'].iloc[-1] - merged_data['discount_rate'].iloc[-11]
 
-            # 2. 最大回撤
-            # 计算累计净值（复权）
-            merged_data['cum_nav'] = (1 + merged_data['pct_chg_fund'] / 100).cumprod()
-            merged_data['max_nav'] = merged_data['cum_nav'].cummax()
-            merged_data['drawdown'] = (merged_data['max_nav'] - merged_data['cum_nav']) / merged_data['max_nav']
-            max_drawdown = merged_data['drawdown'].max()
-            
-            # 3. 日折价率及变化
-            merged_data['discount_rate'] = (merged_data['unit_nav'] - merged_data['close_fund']) / merged_data['unit_nav']
-            latest_discount_rate = merged_data['discount_rate'].iloc[-1] if not merged_data.empty else np.nan
-            
-            # 折价率历史百分位
-            df_discount_1y = merged_data['discount_rate'][merged_data.index >= one_year_ago]
-            discount_quantile_1y = df_discount_1y.rank(pct=True).iloc[-1] if not df_discount_1y.empty and len(df_discount_1y) > 1 else np.nan
-            df_discount_3y = merged_data['discount_rate'][merged_data.index >= three_years_ago]
-            discount_quantile_3y = df_discount_3y.rank(pct=True).iloc[-1] if not df_discount_3y.empty and len(df_discount_3y) > 1 else np.nan
+            # 估值 (依赖 df_index_dailybasic)
+            if not df_index_dailybasic.empty and len(df_index_dailybasic) > 20:
+                df_pe_pb_3y = df_index_dailybasic[df_index_dailybasic.index >= three_years_ago]
+                
+                latest_pe = df_pe_pb_3y['pe_ttm'].iloc[-1] if not df_pe_pb_3y.empty else np.nan
+                latest_pb = df_pe_pb_3y['pb'].iloc[-1] if not df_pe_pb_3y.empty else np.nan
+                
+                pe_3y_low = df_pe_pb_3y['pe_ttm'].min()
+                pe_3y_high = df_pe_pb_3y['pe_ttm'].max()
+                pb_3y_low = df_pe_pb_3y['pb'].min()
+                pb_3y_high = df_pe_pb_3y['pb'].max()
 
-            # 短期折价率变化
-            change_5d_discount = np.nan
-            if len(merged_data) > 5:
-                change_5d_discount = merged_data['discount_rate'].iloc[-1] - merged_data['discount_rate'].iloc[-6]
-            change_10d_discount = np.nan
-            if len(merged_data) > 10:
-                change_10d_discount = merged_data['discount_rate'].iloc[-1] - merged_data['discount_rate'].iloc[-11]
-
-            # 4. 指数估值 (PE/PB)
-            df_index_dailybasic.sort_index(inplace=True)
-            # 过去三年PE/PB数据
-            df_pe_pb_3y = df_index_dailybasic[df_index_dailybasic.index >= three_years_ago]
+                pe_quantile_3y = df_pe_pb_3y['pe_ttm'].rank(pct=True).iloc[-1] if len(df_pe_pb_3y) > 1 else np.nan
+                pb_quantile_3y = df_pe_pb_3y['pb'].rank(pct=True).iloc[-1] if len(df_pe_pb_3y) > 1 else np.nan
             
-            latest_pe = df_pe_pb_3y['pe_ttm'].iloc[-1] if not df_pe_pb_3y.empty else np.nan
-            latest_pb = df_pe_pb_3y['pb'].iloc[-1] if not df_pe_pb_3y.empty else np.nan
-            
-            pe_3y_low = df_pe_pb_3y['pe_ttm'].min()
-            pe_3y_high = df_pe_pb_3y['pe_ttm'].max()
-            pb_3y_low = df_pe_pb_3y['pb'].min()
-            pb_3y_high = df_pe_pb_3y['pb'].max()
-
-            pe_quantile_3y = df_pe_pb_3y['pe_ttm'].rank(pct=True).iloc[-1] if not df_pe_pb_3y.empty and len(df_pe_pb_3y) > 1 else np.nan
-            pb_quantile_3y = df_pe_pb_3y['pb'].rank(pct=True).iloc[-1] if not df_pe_pb_3y.empty and len(df_pe_pb_3y) > 1 else np.nan
+            # 流动性与情绪指标 (依赖 df_fund_daily)
+            if not df_fund_daily.empty:
+                df_liquidity_1y = df_fund_daily[df_fund_daily.index >= one_year_ago]
+                df_liquidity_3y = df_fund_daily[df_fund_daily.index >= three_years_ago]
+                df_liquidity_6m = df_liquidity_1y[df_liquidity_1y.index >= (today - timedelta(days=180)).strftime('%Y%m%d')]
+                
+                turnover_1y_mean = df_liquidity_1y['amount'].mean()
+                turnover_rate = turnover_1y_mean / (aum * 100000) if aum > 0 else np.nan
+                turnover_6m_mean = df_liquidity_6m['amount'].mean()
+                turnover_3y_mean = df_liquidity_3y['amount'].mean()
+                turnover_6m_vs_3y = turnover_6m_mean / turnover_3y_mean if turnover_3y_mean > 0 else np.nan
+                turnover_1y_std = df_liquidity_1y['amount'].std()
+                low_quantile_turnover = df_liquidity_1y['amount'].quantile(0.05)
+                
+                aum_thousands = aum * 100000
+                df_fund_weekly = df_fund_daily.resample('W')['amount'].sum().to_frame('amount')
+                df_fund_monthly = df_fund_daily.resample('ME')['amount'].sum().to_frame('amount')
+                latest_week_turnover = df_fund_weekly['amount'].iloc[-1] if not df_fund_weekly.empty else 0
+                latest_month_turnover = df_fund_monthly['amount'].iloc[-1] if not df_fund_monthly.empty else 0
+                turnover_ratio_1w = latest_week_turnover / aum_thousands if aum_thousands > 0 else np.nan
+                turnover_ratio_1m = latest_month_turnover / aum_thousands if aum_thousands > 0 else np.nan
+                turnover_acceleration = latest_week_turnover / latest_month_turnover if latest_month_turnover > 0 else np.nan
+                turnover_quantile = np.nan
+                if not df_fund_weekly.empty and len(df_fund_weekly) >= 52:
+                    df_weekly_12m = df_fund_weekly.iloc[-52:]
+                    turnover_quantile = df_weekly_12m['amount'].rank(pct=True).iloc[-1]
+                is_divergence = False
+                price_change_1w = 0
+                df_price_1w = df_fund_daily.tail(5)
+                if len(df_price_1w) > 1:
+                    price_change_1w = (df_price_1w['close'].iloc[-1] - df_price_1w['close'].iloc[0]) / df_price_1w['close'].iloc[0]
+                turnover_change_1w = 0
+                if len(df_fund_weekly) > 1:
+                    turnover_change_1w = latest_week_turnover - df_fund_weekly['amount'].iloc[-2]
+                if np.sign(price_change_1w) != np.sign(turnover_change_1w):
+                    is_divergence = True
 
             # 存储所有结果
             results_list.append({
@@ -289,11 +302,13 @@ def run_data_fetcher():
                 'pb_3y_high': pb_3y_high,
                 'pe_quantile_3y': pe_quantile_3y,
                 'pb_quantile_3y': pb_quantile_3y,
+                'data_status': data_status.lstrip(';'),
             })
-            print(f"已成功计算 {fund_code} 的所有指标。")
+            print(f"已成功计算 {fund_code} 的所有可用指标。")
 
         except Exception as e:
-            print(f"处理 {fund_code} 时发生错误: {e}")
+            print(f"处理 {fund_code} 时发生未知错误: {e}")
+            results_list.append({'ts_code': fund_code, 'data_status': f'error: {e}'})
 
     df_results = pd.DataFrame(results_list)
     df_funds_with_metrics = pd.merge(df_funds, df_results, on='ts_code', how='left') 
@@ -302,13 +317,11 @@ def run_data_fetcher():
     df_industry_turnover = df_funds_with_metrics.groupby('industry')['turnover_ratio_1w'].transform('sum')
     df_funds_with_metrics['turnover_pct_in_industry'] = df_funds_with_metrics['turnover_ratio_1w'] / df_industry_turnover
 
-    
-    
     # 计算行业内成交额占比的百分位数
     df_funds_with_metrics['turnover_pct_in_industry_quantile'] = df_funds_with_metrics['turnover_pct_in_industry'].rank(pct=True)
 
-    # 剔除未能成功计算指标的基金
-    df_funds_with_metrics.dropna(subset=['tracking_error'], inplace=True)
+    # 剔除未能成功计算任何指标的基金
+    df_funds_with_metrics.dropna(subset=['excess_return_mean', 'tracking_error', 'annualized_volatility'], how='all', inplace=True)
 
     output_filename = 'etf_metrics_daily_report.csv'
     df_funds_with_metrics.to_csv(output_filename, index=False, encoding='utf-8-sig')
