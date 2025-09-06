@@ -5,6 +5,7 @@ on:
     branches:
       - main
     paths:
+      - '.github/workflows/etf_monitor.yml'
       - 'ETF.py'
       - 'ETF_screened.py'
   pull_request:
