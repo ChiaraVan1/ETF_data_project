@@ -52,8 +52,7 @@ jobs:
           source-dir: ./
           dest-dir: /
 
-      # 这就是修改后的步骤！
-      - name: 自动提交并推送文件到仓库
+      - name: Auto Commit and Push Files
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: 每日数据更新
