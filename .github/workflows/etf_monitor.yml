@@ -44,6 +44,21 @@ jobs:
         run: |
           python ETF.py && python ETF_screened.py
 
+      # ===== 新增步骤：上传文件到阿里云 OSS =====
+      - name: Upload to Aliyun OSS
+        uses: tuomaskyh/aliyun-oss-action@v1.1.1
+        with:
+          access-key-id: ${{ secrets.ALIYUN_ACCESS_KEY_ID }}
+          access-key-secret: ${{ secrets.ALIYUN_ACCESS_KEY_SECRET }}
+          # 请替换成你自己的存储桶名称和地域
+          bucket: my-etf-data
+          region: oss-cn-beijing
+          # 源文件路径：因为文件在根目录，所以是 ./
+          source-dir: ./
+          # 目标路径：上传到存储桶根目录
+          dest-dir: /
+      # =========================================
+
       - name: 提交并推送文件
         run: |
           git config --global user.name 'github-actions[bot]'
