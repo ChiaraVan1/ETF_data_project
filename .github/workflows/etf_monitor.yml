@@ -38,7 +38,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install pandas tushare numpy
-          pip install aliyun-oss-python-sdk
+          pip install oss2
 
       - name: 运行 ETF 数据获取脚本
         env:
