@@ -5,9 +5,11 @@ on:
     branches:
       - main
     paths:
+      # 在这里加上你的 YAML 文件路径，以便修改后自动触发
       - '.github/workflows/etf_monitor.yml'
       - 'ETF.py'
       - 'ETF_screened.py'
+      - 'upload_to_oss.py'
   pull_request:
     branches:
       - main
@@ -36,6 +38,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install pandas tushare numpy
+          pip install aliyun-oss-python-sdk
 
       - name: 运行 ETF 数据获取脚本
         env:
@@ -43,15 +46,14 @@ jobs:
         run: |
           python ETF.py && python ETF_screened.py
 
-      - name: Upload to Aliyun OSS
-        uses: wangshunli/upload-to-oss@v1
-        with:
-          accessKeyId: ${{ secrets.ALIYUN_ACCESS_KEY_ID }}
-          accessKeySecret: ${{ secrets.ALIYUN_ACCESS_KEY_SECRET }}
-          bucket: my-etf-data
-          region: oss-cn-beijing
-          sourceDir: ./
-          destDir: /
+      - name: 上传文件到阿里云 OSS
+        env:
+          ALIYUN_ACCESS_KEY_ID: ${{ secrets.ALIYUN_ACCESS_KEY_ID }}
+          ALIYUN_ACCESS_KEY_SECRET: ${{ secrets.ALIYUN_ACCESS_KEY_SECRET }}
+          OSS_ENDPOINT: ${{ secrets.OSS_ENDPOINT }}
+          OSS_BUCKET_NAME: ${{ secrets.OSS_BUCKET_NAME }}
+        run: |
+          python upload_to_oss.py
 
       - name: 自动提交并推送文件到仓库
         uses: stefanzweifel/git-auto-commit-action@v5
