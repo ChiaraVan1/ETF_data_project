@@ -44,16 +44,16 @@ jobs:
           python ETF.py && python ETF_screened.py
 
       - name: Upload to Aliyun OSS
-        uses: tuomaskyh/aliyun-oss-action@v1.1.1
+        uses: wangshunli/upload-to-oss@v1
         with:
-          access-key-id: ${{ secrets.ALIYUN_ACCESS_KEY_ID }}
-          access-key-secret: ${{ secrets.ALIYUN_ACCESS_KEY_SECRET }}
+          accessKeyId: ${{ secrets.ALIYUN_ACCESS_KEY_ID }}
+          accessKeySecret: ${{ secrets.ALIYUN_ACCESS_KEY_SECRET }}
           bucket: my-etf-data
           region: oss-cn-beijing
-          source-dir: ./
-          dest-dir: /
+          sourceDir: ./
+          destDir: /
 
-      - name: Auto Commit and Push Files
+      - name: 自动提交并推送文件到仓库
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: 每日数据更新
