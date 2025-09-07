@@ -16,9 +16,12 @@ import os
 
 # --- 辅助函数：计算超额收益移动平均线趋势斜率 ---
 def calculate_ma_slope(row):
-    y = np.array([row['excess_return_5d_ma'], 
-                  row['excess_return_10d_ma'], 
-                  row['excess_return_15d_ma'], 
+    """
+    计算超额收益移动平均线趋势的斜率。
+    """
+    y = np.array([row['excess_return_5d_ma'],
+                  row['excess_return_10d_ma'],
+                  row['excess_return_15d_ma'],
                   row['excess_return_20d_ma']])
     x = np.array([5, 10, 15, 20])
     try:
@@ -29,6 +32,9 @@ def calculate_ma_slope(row):
 
 # --- 核心策略执行函数 ---
 def perform_strategies(df_funds):
+    """
+    根据所有策略逻辑，为每只ETF打标签，并提供筛选理由。
+    """
     results_list = []
     
     # 计算行业平均值，用于筛选基准
@@ -43,29 +49,30 @@ def perform_strategies(df_funds):
         reason = ""
 
         # --- 买入机会 (Buy_Signal) 策略 ---
-        # 综合所有买入条件
         buy_cond = (
-            # 基础安全条件
-            (row['issue_amount'] >= 2.0) and 
-            (row['turnover_rate'] >= df_funds['turnover_rate'].quantile(0.2)) and 
-            (pd.notna(row['latest_discount_rate']) and row['latest_discount_rate'] <= 0.0) and 
-            (pd.notna(row['discount_quantile_1y']) and row['discount_quantile_1y'] <= 0.7) and 
-            (pd.notna(row['volatility_quantile_1y']) and row['volatility_quantile_1y'] <= 0.8) and 
-            (pd.notna(row['max_drawdown_quantile_1y']) and row['max_drawdown_quantile_1y'] <= 0.8)
+            # 绝对值：安全门槛
+            (row['issue_amount'] >= 2.0) and
+            (pd.notna(row['turnover_rate']) and row['turnover_rate'] >= df_funds['turnover_rate'].quantile(0.2)) and
+            (pd.notna(row['latest_discount_rate']) and row['latest_discount_rate'] <= 0.02) and # 折溢价小于2%
+            (pd.notna(row['annualized_volatility']) and row['annualized_volatility'] <= 0.40) and # 年化波动率小于40%
+            (pd.notna(row['max_drawdown']) and row['max_drawdown'] <= 0.50) and # 最大回撤小于50%
+            (pd.notna(row['discount_quantile_1y']) and row['discount_quantile_1y'] <= 0.8) and
+            (pd.notna(row['volatility_quantile_1y']) and row['volatility_quantile_1y'] <= 0.9) and
+            (pd.notna(row['max_drawdown_quantile_1y']) and row['max_drawdown_quantile_1y'] <= 0.9)
         ) and (
-            # 加分触发条件
-            (pd.notna(row['turnover_acceleration']) and row['turnover_acceleration'] > 1.0) or 
-            (pd.notna(row['turnover_quantile']) and row['turnover_quantile'] >= 0.5) or 
-            (pd.notna(row['ma_trend_slope']) and row['ma_trend_slope'] > 0) or 
-            (pd.notna(row['excess_return_vs_yoy']) and row['excess_return_vs_yoy'] > 0) or 
+            # 相对值：动态机会
+            (pd.notna(row['turnover_acceleration']) and row['turnover_acceleration'] > 1.2) or
+            (pd.notna(row['turnover_quantile']) and row['turnover_quantile'] >= 0.75) or
+            (pd.notna(row['ma_trend_slope']) and row['ma_trend_slope'] > 0) or
+            (pd.notna(row['excess_return_vs_yoy']) and row['excess_return_vs_yoy'] > 0) or
             (pd.notna(row['excess_return_mean']) and row['excess_return_mean'] > industry_metrics_mean.get(row['industry'], {}).get('excess_return_mean', -100))
         )
 
         if buy_cond:
             strategy = "买入机会"
             reasons = []
-            if pd.notna(row['turnover_acceleration']) and row['turnover_acceleration'] > 1.0: reasons.append("资金流入加速")
-            if pd.notna(row['turnover_quantile']) and row['turnover_quantile'] >= 0.5: reasons.append("成交分位回升")
+            if pd.notna(row['turnover_acceleration']) and row['turnover_acceleration'] > 1.2: reasons.append("资金流入加速")
+            if pd.notna(row['turnover_quantile']) and row['turnover_quantile'] >= 0.75: reasons.append("成交分位高位")
             if pd.notna(row['ma_trend_slope']) and row['ma_trend_slope'] > 0: reasons.append("超额收益趋势改善")
             if pd.notna(row['excess_return_vs_yoy']) and row['excess_return_vs_yoy'] > 0: reasons.append("超额收益优于去年同期")
             if pd.notna(row['excess_return_mean']) and row['excess_return_mean'] > industry_metrics_mean.get(row['industry'], {}).get('excess_return_mean', -100): reasons.append("长期超额为正")
@@ -73,9 +80,9 @@ def perform_strategies(df_funds):
         
         # --- 低买 (Low_Buy) 策略 ---
         low_buy_cond = (
-            (pd.notna(row['discount_quantile_1y']) and row['discount_quantile_1y'] < 0.1) and
-            (pd.notna(row['change_10d_discount']) and row['change_10d_discount'] < 0) and
-            (pd.notna(row['turnover_quantile']) and row['turnover_quantile'] <= 0.2) and
+            (pd.notna(row['discount_quantile_1y']) and row['discount_quantile_1y'] < 0.2) and
+            (pd.notna(row['change_10d_discount']) and row['change_10d_discount'] < -0.01) and # 10日折价率加深超过1%
+            (pd.notna(row['turnover_quantile']) and row['turnover_quantile'] <= 0.3) and
             (pd.notna(row['issue_amount']) and row['issue_amount'] >= 5.0) and
             (pd.notna(row['volatility_quantile_1y']) and row['volatility_quantile_1y'] <= 0.8) and
             (pd.notna(row['max_drawdown_quantile_1y']) and row['max_drawdown_quantile_1y'] <= 0.8)
@@ -83,28 +90,30 @@ def perform_strategies(df_funds):
         if not strategy and low_buy_cond:
             strategy = "低买"
             reasons = []
-            if pd.notna(row['discount_quantile_1y']) and row['discount_quantile_1y'] < 0.1: reasons.append("历史大折价")
-            if pd.notna(row['turnover_quantile']) and row['turnover_quantile'] <= 0.2: reasons.append("资金流处于冰点")
+            if pd.notna(row['discount_quantile_1y']) and row['discount_quantile_1y'] < 0.2: reasons.append("估值历史低位")
+            if pd.notna(row['change_10d_discount']) and row['change_10d_discount'] < -0.01: reasons.append("折价率快速加深")
+            if pd.notna(row['turnover_quantile']) and row['turnover_quantile'] <= 0.3: reasons.append("资金流处于冰点")
             reason = "、".join(reasons)
 
         # --- 卖出警示 (Sell_Alert) 策略 ---
         # 仅针对满足买入条件的基金进行警示
         if strategy == "买入机会":
-            valuation_cond = (pd.notna(row['discount_quantile_1y']) and row['discount_quantile_1y'] > 0.8)
+            valuation_cond = (pd.notna(row['discount_quantile_1y']) and row['discount_quantile_1y'] > 0.9) or (pd.notna(row['latest_discount_rate']) and row['latest_discount_rate'] > 0.02) # 估值高位
             capital_cond = (
-                (pd.notna(row['turnover_acceleration']) and row['turnover_acceleration'] < 1.0) or
+                (pd.notna(row['turnover_acceleration']) and row['turnover_acceleration'] < 0.8) or
                 (pd.notna(row['turnover_quantile']) and row['turnover_quantile'] <= 0.3) or
                 (pd.notna(row['is_price_turnover_divergence']) and row['is_price_turnover_divergence'] == True)
             )
             risk_cond = (
-                (pd.notna(row['volatility_slope']) and row['volatility_slope'] > 0) or
-                (pd.notna(row['max_drawdown_slope']) and row['max_drawdown_slope'] < 0)
+                (pd.notna(row['volatility_slope']) and row['volatility_slope'] > 0.0001) or
+                (pd.notna(row['max_drawdown_slope']) and row['max_drawdown_slope'] < -0.0001)
             )
             
-            if valuation_cond and (capital_cond or risk_cond):
+            if valuation_cond or capital_cond or risk_cond:
                 strategy = "卖出警示"
-                reasons = ["高估值"]
-                if capital_cond: reasons.append("资金撤退")
+                reasons = []
+                if valuation_cond: reasons.append("估值高位")
+                if capital_cond: reasons.append("资金撤退或背离")
                 if risk_cond: reasons.append("风险恶化")
                 reason = "、".join(reasons)
 
@@ -126,7 +135,6 @@ def run_all_strategies():
 
     df_result = perform_strategies(df_funds)
     
-    # 筛选出有策略标签的结果
     df_final = df_result[df_result['Strategy'] != ""].copy()
     
     # 最终报告格式化
@@ -143,8 +151,7 @@ def run_all_strategies():
     df_final['最大回撤1年分位(%)'] = (df_final['max_drawdown_quantile_1y'] * 100).round(2)
     df_final['波动率斜率'] = df_final['volatility_slope'].round(4)
     df_final['最大回撤斜率'] = df_final['max_drawdown_slope'].round(4)
-
-    # 选取最终要展示的列
+    
     output_columns = [
         'ts_code', 'name', 'industry', 'invest_type', 'Strategy', 'Reason',
         '超额收益均值(%)', '追踪误差(%)', '超额收益趋势斜率(万分之)', '换手率(%)', 
