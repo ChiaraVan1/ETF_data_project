@@ -117,6 +117,18 @@ def calculate_metrics(pro, df_funds):
     one_year_ago = (today - timedelta(days=365)).strftime('%Y%m%d')
     three_years_ago = (today - timedelta(days=3 * 365)).strftime('%Y%m%d')
 
+    # --- 辅助函数：量化移动平均线趋势斜率 ---
+    def calculate_ma_slope(series):
+        if len(series) < 2:
+            return np.nan
+        y = series.values
+        x = np.arange(len(y))
+        try:
+            slope = np.polyfit(x, y, 1)[0]
+        except np.linalg.LinAlgError:
+            slope = np.nan
+        return slope
+
     for index, row in df_funds.iterrows():
         fund_code = row['ts_code']
         benchmark_code = row['benchmark_code']
@@ -131,6 +143,7 @@ def calculate_metrics(pro, df_funds):
             'excess_return_mean': np.nan, 'tracking_error': np.nan,
             'excess_return_5d_ma': np.nan, 'excess_return_10d_ma': np.nan,
             'excess_return_15d_ma': np.nan, 'excess_return_20d_ma': np.nan,
+            'ma_trend_slope': np.nan,
             'turnover_1y_mean': np.nan, 'turnover_rate': np.nan,
             'turnover_6m_vs_3y': np.nan, 'turnover_1y_std': np.nan,
             'low_quantile_turnover': np.nan, 'turnover_ratio_1w': np.nan,
@@ -140,7 +153,6 @@ def calculate_metrics(pro, df_funds):
             'latest_discount_rate': np.nan, 'discount_quantile_1y': np.nan,
             'discount_quantile_3y': np.nan, 'change_5d_discount': np.nan,
             'change_10d_discount': np.nan,
-            # 新增指标
             'volatility_quantile_1y': np.nan, 'volatility_quantile_3y': np.nan,
             'max_drawdown_quantile_1y': np.nan, 'max_drawdown_quantile_3y': np.nan,
             'volatility_slope': np.nan, 'max_drawdown_slope': np.nan,
@@ -198,6 +210,14 @@ def calculate_metrics(pro, df_funds):
                 metrics['excess_return_10d_ma'] = merged_data['excess_return'].rolling(window=10).mean().iloc[-1]
                 metrics['excess_return_15d_ma'] = merged_data['excess_return'].rolling(window=15).mean().iloc[-1]
                 metrics['excess_return_20d_ma'] = merged_data['excess_return'].rolling(window=20).mean().iloc[-1]
+                
+                y = np.array([metrics['excess_return_5d_ma'], metrics['excess_return_10d_ma'],
+                              metrics['excess_return_15d_ma'], metrics['excess_return_20d_ma']])
+                x = np.array([5, 10, 15, 20])
+                try:
+                    metrics['ma_trend_slope'] = np.polyfit(x, y, 1)[0]
+                except np.linalg.LinAlgError:
+                    metrics['ma_trend_slope'] = np.nan
 
             # 收益波动率及分位数 (依赖 df_fund_daily)
             if 'pct_chg_fund' in merged_data.columns:
@@ -214,7 +234,6 @@ def calculate_metrics(pro, df_funds):
                     if not df_vol_3y.empty:
                         metrics['volatility_quantile_3y'] = df_vol_3y.rank(pct=True).iloc[-1]
                     
-                    # 新增：计算波动率斜率
                     if len(merged_data['rolling_volatility'].dropna()) >= 20:
                         y = merged_data['rolling_volatility'].dropna().iloc[-20:]
                         x = np.arange(len(y))
@@ -227,7 +246,6 @@ def calculate_metrics(pro, df_funds):
                 merged_data['drawdown'] = (merged_data['max_close'] - merged_data['cum_close']) / merged_data['max_close']
                 metrics['max_drawdown'] = merged_data['drawdown'].max()
                 
-                # 计算最大回撤斜率和分位数
                 merged_data['rolling_drawdown'] = merged_data['drawdown'].rolling(window=20).max()
                 if not merged_data['rolling_drawdown'].dropna().empty:
                     df_drawdown_1y = merged_data['rolling_drawdown'].dropna().loc[one_year_ago:]
@@ -305,12 +323,11 @@ def calculate_metrics(pro, df_funds):
                     is_divergence = True
                 metrics['is_price_turnover_divergence'] = is_divergence
                 
-                # 新增：与去年同期对比
                 one_year_ago_date = (datetime.now() - timedelta(days=365)).date()
                 one_week_ago = (datetime.now() - timedelta(weeks=1)).date()
                 same_week_last_year = one_week_ago - timedelta(days=365)
                 
-                df_yoy_data = merged_data.loc[same_week_last_year:one_week_ago]
+                df_yoy_data = merged_data.loc[same_week_last_year.strftime('%Y%m%d'):one_week_ago.strftime('%Y%m%d')]
                 if not df_yoy_data.empty:
                     yoy_excess_return_mean = df_yoy_data['excess_return'].mean()
                     metrics['excess_return_vs_yoy'] = metrics['excess_return_mean'] - yoy_excess_return_mean
@@ -321,7 +338,6 @@ def calculate_metrics(pro, df_funds):
                     yoy_discount = df_yoy_data['discount_rate'].mean()
                     metrics['latest_discount_vs_yoy'] = metrics['latest_discount_rate'] - yoy_discount
                 
-            # 存储结果并添加状态信息
             metrics['data_status'] = data_status.lstrip(';')
             results_list.append(metrics)
             print(f"已成功计算 {fund_code} 的所有可用指标。")
