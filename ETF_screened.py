@@ -8,17 +8,15 @@ ETF监控模型 - 筛选策略执行 (双模式版)
 
 作者：[ChiaraVan]
 创建日期：[30/08/2025]
-"""
 
 import pandas as pd
 import numpy as np
 import os
 
-# --- 辅助函数：量化超额收益移动平均线趋势 ---
+# --- 辅助函数：计算超额收益移动平均线趋势斜率 ---
 def calculate_ma_slope(row):
     """
     计算超额收益移动平均线趋势的斜率。
-    斜率为正表示近期表现改善，为负表示恶化。
     """
     y = np.array([row['excess_return_5d_ma'], 
                   row['excess_return_10d_ma'], 
@@ -31,125 +29,118 @@ def calculate_ma_slope(row):
         slope = np.nan
     return slope
 
-# --- 核心筛选逻辑函数 ---
-def perform_screening(df_funds, mode='normal'):
+# --- 核心策略执行函数 ---
+def perform_strategies(df_funds):
     """
-    执行具体的ETF筛选逻辑，可选择模式。
-    Args:
-        df_funds (pd.DataFrame): 包含所有ETF指标的DataFrame。
-        mode (str): 筛选模式，可选 'normal' (常规模式) 或 'reversal' (反转模式)。
-    Returns:
-        pd.DataFrame: 筛选后的DataFrame。
+    根据所有策略逻辑，为每只ETF打标签，并提供筛选理由。
     """
+    results_list = []
+    
+    # 计算行业平均值，用于筛选基准
     industry_metrics_mean = df_funds.groupby('industry').agg({
         'excess_return_mean': 'mean',
         'tracking_error': 'mean'
     }).to_dict('index')
     
-    screened_etfs_list = []
-
     for index, row in df_funds.iterrows():
-        industry = row['industry']
-        
-        if industry in industry_metrics_mean:
-            excess_return_threshold = industry_metrics_mean[industry]['excess_return_mean']
-            tracking_error_threshold = industry_metrics_mean[industry]['tracking_error']
+        # 初始化结果
+        strategy = ""
+        reason = ""
 
-            # --- 常规筛选模式 ('normal') ---
-            if mode == 'normal':
-                cond1 = row['excess_return_mean'] > excess_return_threshold
-                cond2 = row['tracking_error'] < tracking_error_threshold
-                cond3 = row['ma_trend_slope'] > 0
-                cond4 = row['is_price_turnover_divergence'] == False
+        # --- 买入机会 (Buy_Signal) 策略 ---
+        # 综合所有买入条件，简化逻辑
+        buy_cond = (
+            # 基础安全条件
+            row['issue_amount'] >= 2.0 and
+            row['turnover_rate'] >= df_funds['turnover_rate'].quantile(0.2) and
+            row['latest_discount_rate'] <= 0.0 and
+            row['discount_quantile_1y'] <= 0.7 and
+            row['volatility_quantile_1y'] <= 0.8 and
+            row['max_drawdown_quantile_1y'] <= 0.8
+        ) and (
+            # 加分触发条件
+            row['turnover_acceleration'] > 1.0 or
+            row['turnover_quantile'] >= 0.5 or
+            (pd.notna(row['ma_trend_slope']) and row['ma_trend_slope'] > 0) or
+            (pd.notna(row['excess_return_vs_yoy']) and row['excess_return_vs_yoy'] > 0) or
+            (pd.notna(row['excess_return_mean']) and row['excess_return_mean'] > industry_metrics_mean.get(row['industry'], {}).get('excess_return_mean', -100))
+        )
 
-                if cond1 and cond2 and cond3 and cond4:
-                    screened_etfs_list.append(row)
+        if buy_cond:
+            strategy = "买入机会"
+            reasons = []
+            if row['turnover_acceleration'] > 1.0: reasons.append("资金流入加速")
+            if row['turnover_quantile'] >= 0.5: reasons.append("成交分位回升")
+            if pd.notna(row['ma_trend_slope']) and row['ma_trend_slope'] > 0: reasons.append("超额收益趋势改善")
+            if pd.notna(row['excess_return_vs_yoy']) and row['excess_return_vs_yoy'] > 0: reasons.append("超额收益优于去年同期")
+            if pd.notna(row['excess_return_mean']) and row['excess_return_mean'] > industry_metrics_mean.get(row['industry'], {}).get('excess_return_mean', -100): reasons.append("长期超额为正")
+            reason = "、".join(reasons)
 
-            # --- 反转机会捕捉模式 ('reversal') ---
-            elif mode == 'reversal':
-                cond1 = row['is_price_turnover_divergence'] == True
-                cond2 = row['excess_return_mean'] < excess_return_threshold
-                cond3 = row['turnover_acceleration'] > 1.2
-                cond4 = row['turnover_quantile'] > 0.75
-                if cond1 and cond2 and cond3 and cond4:
-                    screened_etfs_list.append(row)
+        # --- 低买 (Low_Buy) 策略 ---
+        low_buy_cond = (
+            row['discount_quantile_1y'] < 0.1 and
+            (pd.notna(row['change_10d_discount']) and row['change_10d_discount'] < 0) and
+            row['turnover_quantile'] <= 0.2 and
+            row['issue_amount'] >= 5.0 and
+            row['volatility_quantile_1y'] <= 0.8 and
+            row['max_drawdown_quantile_1y'] <= 0.8
+        )
+        if not strategy and low_buy_cond:
+            strategy = "低买"
+            reasons = []
+            if row['discount_quantile_1y'] < 0.1: reasons.append("历史大折价")
+            if row['turnover_quantile'] <= 0.2: reasons.append("资金流处于冰点")
+            reason = "、".join(reasons)
 
-    return pd.DataFrame(screened_etfs_list)
+        # --- 卖出警示 (Sell_Alert) 策略 ---
+        # 仅针对满足买入条件的基金进行警示
+        if strategy == "买入机会":
+            valuation_cond = row['discount_quantile_1y'] > 0.8 # 估值高位
+            capital_cond = (
+                (pd.notna(row['turnover_acceleration']) and row['turnover_acceleration'] < 1.0) or
+                (pd.notna(row['turnover_quantile']) and row['turnover_quantile'] <= 0.3) or
+                row['is_price_turnover_divergence'] == True
+            )
+            risk_cond = (
+                (pd.notna(row['volatility_slope']) and row['volatility_slope'] > 0) or
+                (pd.notna(row['max_drawdown_slope']) and row['max_drawdown_slope'] < 0)
+            )
+            
+            if valuation_cond and (capital_cond or risk_cond):
+                strategy = "卖出警示"
+                reasons = ["高估值"]
+                if capital_cond: reasons.append("资金撤退")
+                if risk_cond: reasons.append("风险恶化")
+                reason = "、".join(reasons)
 
-# --- 主函数：运行所有模式 ---
-def run_all_modes():
-    """
-    加载数据并依次运行常规模式和反转模式。
-    """
+        row['Strategy'] = strategy
+        row['Reason'] = reason
+        results_list.append(row)
+    
+    return pd.DataFrame(results_list)
+
+# --- 主函数：运行所有策略并生成报告 ---
+def run_all_strategies():
     data_file = 'etf_metrics_daily_report.csv'
     if not os.path.exists(data_file):
-        print(f"错误: 找不到数据文件 '{data_file}'。请先运行 ETF_data_fetcher.py。")
+        print(f"错误: 找不到数据文件 '{data_file}'。请先运行 ETF.py 生成数据报告。")
         return
 
-    # 加载数据并进行预处理
     df_funds = pd.read_csv(data_file)
     print("已成功加载数据报告。")
-    columns_to_convert = ['excess_return_mean', 'tracking_error', 'turnover_rate', 'turnover_6m_vs_3y',
-                          'excess_return_5d_ma', 'excess_return_10d_ma', 'excess_return_15d_ma', 'excess_return_20d_ma',
-                          'turnover_acceleration', 'turnover_quantile', 'turnover_pct_in_industry_quantile']
-    for col in columns_to_convert:
-        df_funds[col] = pd.to_numeric(df_funds[col], errors='coerce')
-    df_funds['ma_trend_slope'] = df_funds.apply(calculate_ma_slope, axis=1)
-    df_funds.dropna(subset=['excess_return_mean', 'tracking_error', 'turnover_rate', 'ma_trend_slope', 'turnover_quantile'], inplace=True)
 
-    # 运行常规模式
-    print("\n--- 正在运行常规筛选模式 ---")
-    df_normal = perform_screening(df_funds, mode='normal')
-    if not df_normal.empty:
-        # 数值格式化和列名优化
-        df_normal['超额收益均值(%)'] = (df_normal['excess_return_mean'] * 100).round(2)
-        df_normal['追踪误差(%)'] = (df_normal['tracking_error'] * 100).round(2)
-        df_normal['换手率(%)'] = (df_normal['turnover_rate'] * 100).round(2)
-        df_normal['超额收益趋势斜率(万分之)'] = df_normal['ma_trend_slope'].round(4)
-        df_normal['换手率6个月比3年'] = df_normal['turnover_6m_vs_3y'].round(2)
-        df_normal['行业内成交额占比(%)'] = (df_normal['turnover_pct_in_industry'] * 100).round(2)
-        # 新增：行业内成交额占比(百分位)
-        df_normal['行业内成交额占比(百分位)'] = (df_normal['turnover_pct_in_industry_quantile'] * 100).round(2)
-        
-        df_normal = df_normal[['ts_code', 'name', 'industry', 'invest_type',
-                               '换手率(%)', '换手率6个月比3年', '超额收益均值(%)', '追踪误差(%)',
-                               '超额收益趋势斜率(万分之)', 'is_price_turnover_divergence', 
-                               '行业内成交额占比(%)', '行业内成交额占比(百分位)']]
-        df_normal.rename(columns={'is_price_turnover_divergence': '价格成交额背离'}, inplace=True)
-
-        output_filename = 'etf_screener_results_normal_mode.csv'
-        df_normal.to_csv(output_filename, index=False, encoding='utf-8-sig')
-        print(f"在'normal'模式下，成功筛选出 {len(df_normal)} 只ETF。结果已保存到 {output_filename} 文件中。")
-    else:
-        print("在'normal'模式下，没有筛选出符合条件的ETF。")
-
-    # 运行反转模式
-    print("\n--- 正在运行反转机会捕捉模式 ---")
-    df_reversal = perform_screening(df_funds, mode='reversal')
-    if not df_reversal.empty:
-        # 数值格式化和列名优化
-        df_reversal['超额收益均值(%)'] = (df_reversal['excess_return_mean'] * 100).round(2)
-        df_reversal['追踪误差(%)'] = (df_reversal['tracking_error'] * 100).round(2)
-        df_reversal['换手率(%)'] = (df_reversal['turnover_rate'] * 100).round(2)
-        df_reversal['超额收益趋势斜率(万分之)'] = df_reversal['ma_trend_slope'].round(4)
-        df_reversal['资金流加速度(倍)'] = df_reversal['turnover_acceleration'].round(2)
-        df_reversal['资金流分位数(%)'] = (df_reversal['turnover_quantile'] * 100).round(2)
-        df_reversal['换手率6个月比3年'] = df_reversal['turnover_6m_vs_3y'].round(2)
-        df_reversal['行业内成交额占比(%)'] = (df_reversal['turnover_pct_in_industry'] * 100).round(2)
-        # 新增：行业内成交额占比(百分位)
-        df_reversal['行业内成交额占比(百分位)'] = (df_reversal['turnover_pct_in_industry_quantile'] * 100).round(2)
-        
-        df_reversal = df_reversal[['ts_code', 'name', 'industry', 'invest_type',
-                                   '价格成交额背离', '资金流加速度(倍)', '资金流分位数(%)',
-                                   '换手率(%)', '换手率6个月比3年', '超额收益均值(%)', '追踪误差(%)',
-                                   '超额收益趋势斜率(万分之)', '行业内成交额占比(%)', '行业内成交额占比(百分位)']]
-        df_reversal.rename(columns={'is_price_turnover_divergence': '价格成交额背离'}, inplace=True)
-
-        output_filename = 'etf_screener_results_reversal_mode.csv'
-        df_reversal.to_csv(output_filename, index=False, encoding='utf-8-sig')
-        print(f"在'reversal'模式下，成功筛选出 {len(df_reversal)} 只ETF。结果已保存到 {output_filename} 文件中。")
-    else:
-        print("在'reversal'模式下，没有筛选出符合条件的ETF。")
-
-if __name__ == '__main__':
-    run_all_modes()
+    df_result = perform_strategies(df_funds)
+    
+    # 筛选出有策略标签的结果
+    df_final = df_result[df_result['Strategy'] != ""].copy()
+    
+    # 最终报告格式化
+    df_final['超额收益均值(%)'] = (df_final['excess_return_mean'] * 100).round(2)
+    df_final['追踪误差(%)'] = (df_final['tracking_error'] * 100).round(2)
+    df_final['换手率(%)'] = (df_final['turnover_rate'] * 100).round(2)
+    df_final['超额收益趋势斜率(万分之)'] = df_final['ma_trend_slope'].round(4)
+    df_final['资金流加速度(倍)'] = df_final['turnover_acceleration'].round(2)
+    df_final['资金流分位数(%)'] = (df_final['turnover_quantile'] * 100).round(2)
+    df_final['价格成交额背离'] = df_final['is_price_turnover_divergence'].apply(lambda x: '是' if x else '否')
+    df_final['最新折价率(%)'] = (df_final['latest_discount_rate'] * 100).round(2)
+    df_final['折价率1年分位(%)'] =
