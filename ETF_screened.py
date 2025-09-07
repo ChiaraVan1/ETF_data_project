@@ -15,9 +15,6 @@ import os
 
 # --- 辅助函数：计算超额收益移动平均线趋势斜率 ---
 def calculate_ma_slope(row):
-    """
-    计算超额收益移动平均线趋势的斜率。
-    """
     y = np.array([row['excess_return_5d_ma'], 
                   row['excess_return_10d_ma'], 
                   row['excess_return_15d_ma'], 
@@ -31,9 +28,6 @@ def calculate_ma_slope(row):
 
 # --- 核心策略执行函数 ---
 def perform_strategies(df_funds):
-    """
-    根据所有策略逻辑，为每只ETF打标签，并提供筛选理由。
-    """
     results_list = []
     
     # 计算行业平均值，用于筛选基准
