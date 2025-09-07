@@ -109,9 +109,9 @@ def map_funds_to_indices(pro, df_lean):
 
 def calculate_metrics(pro, df_funds):
     """
-    计算所有超额收益、流动性、折价率和风险指标。
+    计算所有超额收益、流动性、折价率、风险指标和同期值。
     """
-    print("\n--- 3. 计算所有超额收益、流动性、折价率和风险指标 ---")
+    print("\n--- 3. 计算所有超额收益、流动性、折价率、风险指标和同期值 ---")
     results_list = []
     today = datetime.now().date()
     one_year_ago = (today - timedelta(days=365)).strftime('%Y%m%d')
@@ -140,6 +140,12 @@ def calculate_metrics(pro, df_funds):
             'latest_discount_rate': np.nan, 'discount_quantile_1y': np.nan,
             'discount_quantile_3y': np.nan, 'change_5d_discount': np.nan,
             'change_10d_discount': np.nan,
+            # 新增指标
+            'volatility_quantile_1y': np.nan, 'volatility_quantile_3y': np.nan,
+            'max_drawdown_quantile_1y': np.nan, 'max_drawdown_quantile_3y': np.nan,
+            'volatility_slope': np.nan, 'max_drawdown_slope': np.nan,
+            'excess_return_vs_yoy': np.nan, 'turnover_rate_vs_yoy': np.nan,
+            'latest_discount_vs_yoy': np.nan,
         }
 
         try:
@@ -162,27 +168,24 @@ def calculate_metrics(pro, df_funds):
             # 数据预处理与合并
             merged_data = pd.DataFrame()
             if not df_fund_daily.empty:
-                df_fund_daily.rename(columns={'close': 'close_fund', 'pct_chg': 'pct_chg_fund'}, inplace=True)
+                df_fund_daily.rename(columns={'close': 'close_fund', 'pct_chg': 'pct_chg_fund', 'vol': 'vol_fund', 'amount': 'amount_fund'}, inplace=True)
                 df_fund_daily['trade_date'] = pd.to_datetime(df_fund_daily['trade_date'])
                 df_fund_daily.set_index('trade_date', inplace=True)
-                df_fund_daily.sort_index(inplace=True)
-                merged_data = df_fund_daily.copy()
+                merged_data = df_fund_daily.sort_index().copy()
             
             if not df_fund_nav.empty:
                 df_fund_nav['nav_date'] = pd.to_datetime(df_fund_nav['nav_date'])
                 df_fund_nav.set_index('nav_date', inplace=True)
-                df_fund_nav.sort_index(inplace=True)
                 if not merged_data.empty:
                     merged_data = pd.merge(merged_data, df_fund_nav[['unit_nav']], left_index=True, right_index=True, how='left')
             
             if not df_index_daily.empty:
-                df_index_daily.rename(columns={'close': 'close_index', 'pct_chg': 'pct_chg_index'}, inplace=True)
+                df_index_daily.rename(columns={'pct_chg': 'pct_chg_index'}, inplace=True)
                 df_index_daily['trade_date'] = pd.to_datetime(df_index_daily['trade_date'])
                 df_index_daily.set_index('trade_date', inplace=True)
-                df_index_daily.sort_index(inplace=True)
                 if not merged_data.empty:
                     merged_data = pd.merge(merged_data, df_index_daily[['pct_chg_index']], left_index=True, right_index=True, how='left')
-            
+
             # --- 计算指标（仅在数据可用时）---
             
             # 超额收益和跟踪误差 (依赖 df_fund_daily 和 df_index_daily)
@@ -196,22 +199,54 @@ def calculate_metrics(pro, df_funds):
                 metrics['excess_return_15d_ma'] = merged_data['excess_return'].rolling(window=15).mean().iloc[-1]
                 metrics['excess_return_20d_ma'] = merged_data['excess_return'].rolling(window=20).mean().iloc[-1]
 
-            # 收益波动率 (依赖 df_fund_daily)
+            # 收益波动率及分位数 (依赖 df_fund_daily)
             if 'pct_chg_fund' in merged_data.columns:
-                metrics['annualized_volatility'] = merged_data['pct_chg_fund'].std() * np.sqrt(250)
+                merged_data['rolling_volatility'] = merged_data['pct_chg_fund'].rolling(window=20).std() * np.sqrt(250)
+                if not merged_data['rolling_volatility'].dropna().empty:
+                    latest_vol = merged_data['rolling_volatility'].iloc[-1]
+                    metrics['annualized_volatility'] = latest_vol
+                    
+                    df_vol_1y = merged_data['rolling_volatility'].dropna().loc[one_year_ago:]
+                    if not df_vol_1y.empty:
+                        metrics['volatility_quantile_1y'] = df_vol_1y.rank(pct=True).iloc[-1]
+                        
+                    df_vol_3y = merged_data['rolling_volatility'].dropna().loc[three_years_ago:]
+                    if not df_vol_3y.empty:
+                        metrics['volatility_quantile_3y'] = df_vol_3y.rank(pct=True).iloc[-1]
+                    
+                    # 新增：计算波动率斜率
+                    if len(merged_data['rolling_volatility'].dropna()) >= 20:
+                        y = merged_data['rolling_volatility'].dropna().iloc[-20:]
+                        x = np.arange(len(y))
+                        metrics['volatility_slope'] = np.polyfit(x, y, 1)[0]
             
-            # 最大回撤 (依赖 df_fund_daily)
+            # 最大回撤及分位数 (依赖 df_fund_daily)
             if 'pct_chg_fund' in merged_data.columns:
                 merged_data['cum_close'] = (1 + merged_data['pct_chg_fund'] / 100).cumprod()
                 merged_data['max_close'] = merged_data['cum_close'].cummax()
                 merged_data['drawdown'] = (merged_data['max_close'] - merged_data['cum_close']) / merged_data['max_close']
                 metrics['max_drawdown'] = merged_data['drawdown'].max()
+                
+                # 计算最大回撤斜率和分位数
+                merged_data['rolling_drawdown'] = merged_data['drawdown'].rolling(window=20).max()
+                if not merged_data['rolling_drawdown'].dropna().empty:
+                    df_drawdown_1y = merged_data['rolling_drawdown'].dropna().loc[one_year_ago:]
+                    if not df_drawdown_1y.empty:
+                        metrics['max_drawdown_quantile_1y'] = df_drawdown_1y.rank(pct=True).iloc[-1]
+                    
+                    df_drawdown_3y = merged_data['rolling_drawdown'].dropna().loc[three_years_ago:]
+                    if not df_drawdown_3y.empty:
+                        metrics['max_drawdown_quantile_3y'] = df_drawdown_3y.rank(pct=True).iloc[-1]
+                    
+                    if len(merged_data['rolling_drawdown'].dropna()) >= 20:
+                        y = merged_data['rolling_drawdown'].dropna().iloc[-20:]
+                        x = np.arange(len(y))
+                        metrics['max_drawdown_slope'] = np.polyfit(x, y, 1)[0]
             
-            # 折价率及变化 (依赖 df_fund_daily 和 df_fund_nav)
+            # 折价率及分位数 (依赖 df_fund_daily 和 df_fund_nav)
             if 'unit_nav' in merged_data.columns and 'close_fund' in merged_data.columns:
                 merged_data['discount_rate'] = (merged_data['unit_nav'] - merged_data['close_fund']) / merged_data['unit_nav']
                 
-                # --- 核心改动：只使用非空值进行计算 ---
                 df_discount_rates = merged_data['discount_rate'].dropna()
                 
                 if not df_discount_rates.empty:
@@ -232,22 +267,22 @@ def calculate_metrics(pro, df_funds):
                             metrics['change_10d_discount'] = df_discount_rates.iloc[-1] - df_discount_rates.iloc[-11]
 
             # 流动性与情绪指标 (依赖 df_fund_daily)
-            if 'amount' in merged_data.columns and 'close_fund' in merged_data.columns:
+            if 'amount_fund' in merged_data.columns and 'close_fund' in merged_data.columns:
                 df_liquidity_1y = merged_data[merged_data.index >= one_year_ago]
                 df_liquidity_3y = merged_data[merged_data.index >= three_years_ago]
                 df_liquidity_6m = df_liquidity_1y[df_liquidity_1y.index >= (today - timedelta(days=180)).strftime('%Y%m%d')]
                 
-                metrics['turnover_1y_mean'] = df_liquidity_1y['amount'].mean()
+                metrics['turnover_1y_mean'] = df_liquidity_1y['amount_fund'].mean()
                 metrics['turnover_rate'] = metrics['turnover_1y_mean'] / (aum * 100000) if aum > 0 else np.nan
-                metrics['turnover_6m_mean'] = df_liquidity_6m['amount'].mean()
-                metrics['turnover_3y_mean'] = df_liquidity_3y['amount'].mean()
+                metrics['turnover_6m_mean'] = df_liquidity_6m['amount_fund'].mean()
+                metrics['turnover_3y_mean'] = df_liquidity_3y['amount_fund'].mean()
                 metrics['turnover_6m_vs_3y'] = metrics['turnover_6m_mean'] / metrics['turnover_3y_mean'] if metrics['turnover_3y_mean'] > 0 else np.nan
-                metrics['turnover_1y_std'] = df_liquidity_1y['amount'].std()
-                metrics['low_quantile_turnover'] = df_liquidity_1y['amount'].quantile(0.05)
+                metrics['turnover_1y_std'] = df_liquidity_1y['amount_fund'].std()
+                metrics['low_quantile_turnover'] = df_liquidity_1y['amount_fund'].quantile(0.05)
                 
                 aum_thousands = aum * 100000
-                df_fund_weekly = merged_data.resample('W')['amount'].sum().to_frame('amount')
-                df_fund_monthly = merged_data.resample('ME')['amount'].sum().to_frame('amount')
+                df_fund_weekly = merged_data.resample('W')['amount_fund'].sum().to_frame('amount')
+                df_fund_monthly = merged_data.resample('ME')['amount_fund'].sum().to_frame('amount')
                 latest_week_turnover = df_fund_weekly['amount'].iloc[-1] if not df_fund_weekly.empty else 0
                 latest_month_turnover = df_fund_monthly['amount'].iloc[-1] if not df_fund_monthly.empty else 0
                 metrics['turnover_ratio_1w'] = latest_week_turnover / aum_thousands if aum_thousands > 0 else np.nan
@@ -269,7 +304,23 @@ def calculate_metrics(pro, df_funds):
                 if np.sign(price_change_1w) != np.sign(turnover_change_1w):
                     is_divergence = True
                 metrics['is_price_turnover_divergence'] = is_divergence
-
+                
+                # 新增：与去年同期对比
+                one_year_ago_date = (datetime.now() - timedelta(days=365)).date()
+                one_week_ago = (datetime.now() - timedelta(weeks=1)).date()
+                same_week_last_year = one_week_ago - timedelta(days=365)
+                
+                df_yoy_data = merged_data.loc[same_week_last_year:one_week_ago]
+                if not df_yoy_data.empty:
+                    yoy_excess_return_mean = df_yoy_data['excess_return'].mean()
+                    metrics['excess_return_vs_yoy'] = metrics['excess_return_mean'] - yoy_excess_return_mean
+                    
+                    yoy_turnover_rate = df_yoy_data['amount_fund'].mean() / (aum * 100000) if aum > 0 else np.nan
+                    metrics['turnover_rate_vs_yoy'] = metrics['turnover_rate'] - yoy_turnover_rate
+                    
+                    yoy_discount = df_yoy_data['discount_rate'].mean()
+                    metrics['latest_discount_vs_yoy'] = metrics['latest_discount_rate'] - yoy_discount
+                
             # 存储结果并添加状态信息
             metrics['data_status'] = data_status.lstrip(';')
             results_list.append(metrics)
@@ -324,4 +375,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
