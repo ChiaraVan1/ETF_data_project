@@ -107,16 +107,13 @@ def map_funds_to_indices(pro, df_lean):
     
     return df_lean
 
-def calculate_metrics(pro, df_funds):
+def calculate_metrics(pro, df_funds, start_date, end_date):
     """
     计算所有超额收益、流动性、折价率、风险指标和同期值。
     """
     print("\n--- 3. 计算所有超额收益、流动性、折价率、风险指标和同期值 ---")
     results_list = []
-    today = datetime.now().date()
-    one_year_ago = (today - timedelta(days=365)).strftime('%Y%m%d')
-    three_years_ago = (today - timedelta(days=3 * 365)).strftime('%Y%m%d')
-
+    
     # --- 辅助函数：量化移动平均线趋势斜率 ---
     def calculate_ma_slope(series):
         if len(series) < 2:
@@ -162,17 +159,17 @@ def calculate_metrics(pro, df_funds):
 
         try:
             # --- 核心数据获取（健壮性处理） ---
-            df_fund_daily = pro.fund_daily(ts_code=fund_code, start_date=three_years_ago)
+            df_fund_daily = pro.fund_daily(ts_code=fund_code, start_date=start_date.strftime('%Y%m%d'), end_date=end_date.strftime('%Y%m%d'))
             if df_fund_daily.empty:
                 print(f"  警告: 未能获取 {fund_code} 的日行情数据，将跳过部分指标计算。")
                 data_status += ';fund_daily_missing'
             
-            df_fund_nav = pro.fund_nav(ts_code=fund_code, start_date=three_years_ago)
+            df_fund_nav = pro.fund_nav(ts_code=fund_code, start_date=start_date.strftime('%Y%m%d'), end_date=end_date.strftime('%Y%m%d'))
             if df_fund_nav.empty:
                 print(f"  警告: 未能获取 {fund_code} 的净值数据，将跳过折价率和最大回撤计算。")
                 data_status += ';fund_nav_missing'
             
-            df_index_daily = pro.index_daily(ts_code=benchmark_code, start_date=three_years_ago)
+            df_index_daily = pro.index_daily(ts_code=benchmark_code, start_date=start_date.strftime('%Y%m%d'), end_date=end_date.strftime('%Y%m%d'))
             if df_index_daily.empty:
                 print(f"  警告: 未能获取基准 {benchmark_code} 的日行情数据，将跳过超额收益和跟踪误差计算。")
                 data_status += ';index_daily_missing'
@@ -203,7 +200,7 @@ def calculate_metrics(pro, df_funds):
             # 超额收益和跟踪误差 (依赖 df_fund_daily 和 df_index_daily)
             if 'pct_chg_fund' in merged_data.columns and 'pct_chg_index' in merged_data.columns and len(merged_data.dropna(subset=['pct_chg_fund', 'pct_chg_index'])) > 20:
                 merged_data['excess_return'] = merged_data['pct_chg_fund'] - merged_data['pct_chg_index']
-                df_excess_3y = merged_data[merged_data.index >= three_years_ago]
+                df_excess_3y = merged_data[merged_data.index >= (end_date - timedelta(days=3 * 365)).strftime('%Y%m%d')]
                 metrics['excess_return_mean'] = df_excess_3y['excess_return'].mean()
                 metrics['tracking_error'] = df_excess_3y['excess_return'].std() * np.sqrt(250)
                 metrics['excess_return_5d_ma'] = merged_data['excess_return'].rolling(window=5).mean().iloc[-1]
@@ -226,11 +223,11 @@ def calculate_metrics(pro, df_funds):
                     latest_vol = merged_data['rolling_volatility'].iloc[-1]
                     metrics['annualized_volatility'] = latest_vol
                     
-                    df_vol_1y = merged_data['rolling_volatility'].dropna().loc[one_year_ago:]
+                    df_vol_1y = merged_data['rolling_volatility'].dropna().loc[(end_date - timedelta(days=365)).strftime('%Y%m%d'):]
                     if not df_vol_1y.empty:
                         metrics['volatility_quantile_1y'] = df_vol_1y.rank(pct=True).iloc[-1]
                         
-                    df_vol_3y = merged_data['rolling_volatility'].dropna().loc[three_years_ago:]
+                    df_vol_3y = merged_data['rolling_volatility'].dropna().loc[(end_date - timedelta(days=3 * 365)).strftime('%Y%m%d'):]
                     if not df_vol_3y.empty:
                         metrics['volatility_quantile_3y'] = df_vol_3y.rank(pct=True).iloc[-1]
                     
@@ -248,11 +245,11 @@ def calculate_metrics(pro, df_funds):
                 
                 merged_data['rolling_drawdown'] = merged_data['drawdown'].rolling(window=20).max()
                 if not merged_data['rolling_drawdown'].dropna().empty:
-                    df_drawdown_1y = merged_data['rolling_drawdown'].dropna().loc[one_year_ago:]
+                    df_drawdown_1y = merged_data['rolling_drawdown'].dropna().loc[(end_date - timedelta(days=365)).strftime('%Y%m%d'):]
                     if not df_drawdown_1y.empty:
                         metrics['max_drawdown_quantile_1y'] = df_drawdown_1y.rank(pct=True).iloc[-1]
                     
-                    df_drawdown_3y = merged_data['rolling_drawdown'].dropna().loc[three_years_ago:]
+                    df_drawdown_3y = merged_data['rolling_drawdown'].dropna().loc[(end_date - timedelta(days=3 * 365)).strftime('%Y%m%d'):]
                     if not df_drawdown_3y.empty:
                         metrics['max_drawdown_quantile_3y'] = df_drawdown_3y.rank(pct=True).iloc[-1]
                     
@@ -271,11 +268,11 @@ def calculate_metrics(pro, df_funds):
                     metrics['latest_discount_rate'] = df_discount_rates.iloc[-1]
                     
                     if len(df_discount_rates) > 1:
-                        df_discount_1y = df_discount_rates[df_discount_rates.index >= one_year_ago]
+                        df_discount_1y = df_discount_rates[df_discount_rates.index >= (end_date - timedelta(days=365)).strftime('%Y%m%d')]
                         if len(df_discount_1y) > 1:
                             metrics['discount_quantile_1y'] = df_discount_1y.rank(pct=True).iloc[-1]
                         
-                        df_discount_3y = df_discount_rates[df_discount_rates.index >= three_years_ago]
+                        df_discount_3y = df_discount_rates[df_discount_rates.index >= (end_date - timedelta(days=3 * 365)).strftime('%Y%m%d')]
                         if len(df_discount_3y) > 1:
                             metrics['discount_quantile_3y'] = df_discount_3y.rank(pct=True).iloc[-1]
         
@@ -286,9 +283,9 @@ def calculate_metrics(pro, df_funds):
 
             # 流动性与情绪指标 (依赖 df_fund_daily)
             if 'amount_fund' in merged_data.columns and 'close_fund' in merged_data.columns:
-                df_liquidity_1y = merged_data[merged_data.index >= one_year_ago]
-                df_liquidity_3y = merged_data[merged_data.index >= three_years_ago]
-                df_liquidity_6m = df_liquidity_1y[df_liquidity_1y.index >= (today - timedelta(days=180)).strftime('%Y%m%d')]
+                df_liquidity_1y = merged_data[merged_data.index >= (end_date - timedelta(days=365)).strftime('%Y%m%d')]
+                df_liquidity_3y = merged_data[merged_data.index >= (end_date - timedelta(days=3 * 365)).strftime('%Y%m%d')]
+                df_liquidity_6m = df_liquidity_1y[df_liquidity_1y.index >= (end_date - timedelta(days=180)).strftime('%Y%m%d')]
                 
                 metrics['turnover_1y_mean'] = df_liquidity_1y['amount_fund'].mean()
                 metrics['turnover_rate'] = metrics['turnover_1y_mean'] / (aum * 100000) if aum > 0 else np.nan
@@ -323,8 +320,8 @@ def calculate_metrics(pro, df_funds):
                     is_divergence = True
                 metrics['is_price_turnover_divergence'] = is_divergence
                 
-                one_year_ago_date = (datetime.now() - timedelta(days=365)).date()
-                one_week_ago = (datetime.now() - timedelta(weeks=1)).date()
+                one_year_ago_date = (end_date - timedelta(days=365)).date()
+                one_week_ago = (end_date - timedelta(weeks=1)).date()
                 same_week_last_year = one_week_ago - timedelta(days=365)
                 
                 df_yoy_data = merged_data.loc[same_week_last_year.strftime('%Y%m%d'):one_week_ago.strftime('%Y%m%d')]
@@ -365,6 +362,10 @@ def main():
     """
     主函数，执行整个数据获取和处理流程。
     """
+    # === 用户自定义区 ===
+    etf_watchlist = ['513750.SH', '513770.SH']
+    # ==================
+    
     pro = initialize_tushare()
     df_lean = fetch_and_filter_funds(pro)
     df_funds = map_funds_to_indices(pro, df_lean)
@@ -372,7 +373,7 @@ def main():
     print("\n--- 3. 筛选并保存最终的基金列表 ---")
     df_funds.to_csv('etf_funds_list_raw.csv', index=False, encoding='utf-8-sig')
     df_funds.dropna(subset=['benchmark_code'], inplace=True)
-    min_issue_amount = 2.0  # Tushare 的 issue_amount 单位是“亿元”
+    min_issue_amount = 2.0
     df_funds = df_funds[df_funds['issue_amount'] >= min_issue_amount]
     df_funds.to_csv('etf_funds_list_final.csv', index=False, encoding='utf-8-sig')
     print(f"最终筛选后，可用于计算的基金数量: {len(df_funds)} 只")
@@ -381,7 +382,7 @@ def main():
     if not unmatched_funds.empty:
         print(f"\n未能自动匹配的基金数量: {len(unmatched_funds)} 只")
         
-    df_results = calculate_metrics(pro, df_funds)
+    df_results = calculate_metrics(pro, df_funds, datetime.now() - timedelta(days=3 * 365), datetime.now())
     df_funds_with_metrics = pd.merge(df_funds, df_results, on='ts_code', how='left')
     df_final_report = post_process_data(df_funds_with_metrics)
 
