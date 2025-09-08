@@ -188,36 +188,41 @@ def run_all_strategies():
     # ===============
     
     # 最终报告格式化
-    df_final['超额收益均值(%)'] = (df_final['excess_return_mean'] * 100).round(2)
-    df_final['追踪误差(%)'] = (df_final['tracking_error'] * 100).round(2)
-    df_final['换手率(%)'] = (df_final['turnover_rate'] * 100).round(2)
-    df_final['超额收益趋势斜率(万分之)'] = df_final['ma_trend_slope'].round(4)
-    df_final['资金流加速度(倍)'] = (df_final['turnover_acceleration']).round(2)
-    df_final['资金流分位数(%)'] = (df_final['turnover_quantile'] * 100).round(2)
-    df_final['价格成交额背离'] = df_final['is_price_turnover_divergence'].apply(lambda x: '是' if x else '否')
-    df_final['最新折价率(%)'] = (df_final['latest_discount_rate'] * 100).round(2)
-    df_final['折价率1年分位(%)'] = (df_final['discount_quantile_1y'] * 100).round(2)
-    df_final['波动率1年分位(%)'] = (df_final['volatility_quantile_1y'] * 100).round(2)
-    df_final['最大回撤1年分位(%)'] = (df_final['max_drawdown_quantile_1y'] * 100).round(2)
-    df_final['波动率斜率'] = df_final['volatility_slope'].round(4)
-    df_final['最大回撤斜率'] = df_final['max_drawdown_slope'].round(4)
-    print("以下是 df_final 的前 5 行数据:")
-    print(df_final.head().to_string())
-    
-    output_columns = [
-        'ts_code', 'name', 'industry', 'invest_type', 'Strategy', 'Reason',
-        '超额收益均值(%)', '追踪误差(%)', '超额收益趋势斜率(万分之)', '换手率(%)', 
-        '资金流加速度(倍)', '资金流分位数(%)', '价格成交额背离',
-        '最新折价率(%)', '折价率1年分位(%)', '波动率1年分位(%)', '最大回撤1年分位(%)',
-        '波动率斜率', '最大回撤斜率'
-    ]
-    df_final = df_final[output_columns]
-    print("以下是 df_final 的前 5 行数据:")
-    print(df_final.head().to_string())
+    if not df_final.empty:
+        df_final['超额收益均值(%)'] = df_final['excess_return_mean'].astype(float) * 100
+        df_final['追踪误差(%)'] = df_final['tracking_error'].astype(float) * 100
+        df_final['换手率(%)'] = df_final['turnover_rate'].astype(float) * 100
+        df_final['超额收益趋势斜率(万分之)'] = df_final['ma_trend_slope'].astype(float) * 10000
+        df_final['资金流加速度(倍)'] = df_final['turnover_acceleration'].astype(float)
+        df_final['资金流分位数(%)'] = df_final['turnover_quantile'].astype(float) * 100
+        df_final['价格成交额背离'] = df_final['is_price_turnover_divergence'].apply(lambda x: '是' if x else '否')
+        df_final['最新折价率(%)'] = df_final['latest_discount_rate'].astype(float) * 100
+        df_final['折价率1年分位(%)'] = df_final['discount_quantile_1y'].astype(float) * 100
+        df_final['波动率1年分位(%)'] = df_final['volatility_quantile_1y'].astype(float) * 100
+        df_final['最大回撤1年分位(%)'] = df_final['max_drawdown_quantile_1y'].astype(float) * 100
+        df_final['波动率斜率'] = df_final['volatility_slope'].astype(float)
+        df_final['最大回撤斜率'] = df_final['max_drawdown_slope'].astype(float)
 
-    output_filename = 'etf_screener_final_report.csv'
-    df_final.to_csv(output_filename, index=False, encoding='utf-8-sig')
-    print(f"\n成功筛选出 {len(df_final)} 只ETF。最终报告已保存到 {output_filename} 文件中。")
+        df_final = df_final.round(4)
+    
+        output_columns = [
+            'ts_code', 'name', 'industry', 'invest_type', 'Strategy', 'Reason',
+            '超额收益均值(%)', '追踪误差(%)', '超额收益趋势斜率(万分之)', '换手率(%)', 
+            '资金流加速度(倍)', '资金流分位数(%)', '价格成交额背离',
+            '最新折价率(%)', '折价率1年分位(%)', '波动率1年分位(%)', '最大回撤1年分位(%)',
+            '波动率斜率', '最大回撤斜率'
+        ]
+        df_final = df_final[output_columns]
+
+        output_filename = 'etf_screener_final_report.csv'
+        df_final.to_csv(output_filename, index=False, encoding='utf-8')
+        print(f"\n成功筛选出 {len(df_final)} 只ETF。最终报告已保存到 {output_filename} 文件中。")
+    else:
+        output_filename = 'etf_screener_final_report.csv'
+        # 创建一个空的DataFrame，并写入文件，确保文件存在
+        pd.DataFrame().to_csv(output_filename, index=False, encoding='utf-8')
+        print(f"\n没有ETF符合筛选条件。已生成空的报告文件: {output_filename}")
+
 
 if __name__ == '__main__':
     run_all_strategies()
