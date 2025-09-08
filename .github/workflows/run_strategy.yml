@@ -8,10 +8,18 @@ on:
       - 'ETF_screened.py'
       - 'upload_to_oss.py'
   workflow_dispatch:
+  workflow_run:
+    workflows: ["Update ETF Data Report"]
+    types:
+      - completed
+    branches:
+      - main
 
 jobs:
   run-strategy:
     runs-on: ubuntu-latest
+    # 仅在 Update ETF Data Report 成功完成时运行
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     steps:
       - name: 检出仓库代码
         uses: actions/checkout@v3
@@ -35,7 +43,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-etf-data-report-
 
-      - name: 运行 ETF 策略和上传脚本
+      - name: Run ETF 策略和上传脚本
         env:
           TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
           ALIYUN_ACCESS_KEY_ID: ${{ secrets.ALIYUN_ACCESS_KEY_ID }}
