@@ -10,6 +10,7 @@ ETF监控模型 - 筛选策略执行 (双模式版)
 创建日期：[30/08/2025]
 """
 
+
 import pandas as pd
 import numpy as np
 import os
@@ -69,8 +70,8 @@ def perform_strategies(df_funds):
         cond_safe_1 = pd.notna(row['issue_amount']) and row['issue_amount'] >= 2.0
         cond_safe_2 = pd.notna(row['turnover_rate']) and row['turnover_rate'] >= turnover_rate_quantile_20
         cond_safe_3 = pd.notna(row['latest_discount_rate']) and row['latest_discount_rate'] <= 0.02
-        cond_safe_4 = pd.notna(row['annualized_volatility']) and row['annualized_volatility'] <= 30
-        cond_safe_5 = pd.notna(row['max_drawdown']) and row['max_drawdown'] <= 0.40
+        cond_safe_4 = pd.notna(row['annualized_volatility']) and row['annualized_volatility'] <= 40.0
+        cond_safe_5 = pd.notna(row['max_drawdown']) and row['max_drawdown'] <= 0.50
         cond_safe_6 = pd.notna(row['discount_quantile_1y']) and row['discount_quantile_1y'] <= 0.8
         cond_safe_7 = pd.notna(row['volatility_quantile_1y']) and row['volatility_quantile_1y'] <= 0.9
         cond_safe_8 = pd.notna(row['max_drawdown_quantile_1y']) and row['max_drawdown_quantile_1y'] <= 0.9
@@ -178,6 +179,13 @@ def run_all_strategies():
     df_result = perform_strategies(df_funds)
     
     df_final = df_result[df_result['Strategy'] != ""].copy()
+    
+    # === 调试代码 ===
+    print("\n--- 调试模式: 正在写入文件 ---")
+    print(f"将要写入文件的 DataFrame 包含 {len(df_final)} 行数据。")
+    print("以下是 df_final 的前 5 行数据:")
+    print(df_final.head().to_string())
+    # ===============
     
     # 最终报告格式化
     df_final['超额收益均值(%)'] = (df_final['excess_return_mean'] * 100).round(2)
