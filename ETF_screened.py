@@ -45,6 +45,13 @@ def perform_strategies(df_funds):
     
     # 获取整个数据集的换手率分位数，用于基准比较
     turnover_rate_quantile_20 = df_funds['turnover_rate'].quantile(0.2)
+    
+    # --- 调试代码开始 ---
+    print("\n--- 调试模式: 正在检查数据和筛选条件 ---")
+    print(f"数据总行数: {len(df_funds)}")
+    print(f"行业超额收益平均值: {industry_metrics_mean}")
+    print(f"全市场换手率 20% 分位点: {turnover_rate_quantile_20:.6f}")
+    # --- 调试代码结束 ---
 
     for index, row in df_funds.iterrows():
         # 初始化结果
@@ -53,53 +60,65 @@ def perform_strategies(df_funds):
 
         # --- 买入机会 (Buy_Signal) 策略 ---
         # 综合所有买入条件
-        is_safe = (
-            row['issue_amount'] >= 2.0 and
-            pd.notna(row['turnover_rate']) and row['turnover_rate'] >= turnover_rate_quantile_20 and
-            pd.notna(row['latest_discount_rate']) and row['latest_discount_rate'] <= 0.02 and
-            pd.notna(row['annualized_volatility']) and row['annualized_volatility'] <= 0.40 and
-            pd.notna(row['max_drawdown']) and row['max_drawdown'] <= 0.50 and
-            pd.notna(row['discount_quantile_1y']) and row['discount_quantile_1y'] <= 0.8 and
-            pd.notna(row['volatility_quantile_1y']) and row['volatility_quantile_1y'] <= 0.9 and
-            pd.notna(row['max_drawdown_quantile_1y']) and row['max_drawdown_quantile_1y'] <= 0.9
-        )
-        
-        is_dynamic = (
-            (pd.notna(row['turnover_acceleration']) and row['turnover_acceleration'] > 1.2) or
-            (pd.notna(row['turnover_quantile']) and row['turnover_quantile'] >= 0.75) or
-            (pd.notna(row['ma_trend_slope']) and row['ma_trend_slope'] > 0) or
-            (pd.notna(row['excess_return_vs_yoy']) and row['excess_return_vs_yoy'] > 0) or
-            (pd.notna(row['excess_return_mean']) and row['excess_return_mean'] > industry_metrics_mean.get(row['industry'], {}).get('excess_return_mean', -100))
-        )
         
         # --- 调试代码开始 ---
-        # 打印出每个基金的筛选结果，帮助定位问题
-        print(f"\n--- 正在检查基金: {row['name']} ---")
-        print(f"  issue_amount >= 2.0: {row['issue_amount'] >= 2.0}")
-        print(f"  turnover_rate >= Q(0.2): {pd.notna(row['turnover_rate']) and row['turnover_rate'] >= turnover_rate_quantile_20}")
-        print(f"  latest_discount_rate <= 0.02: {pd.notna(row['latest_discount_rate']) and row['latest_discount_rate'] <= 0.02}")
-        print(f"  annualized_volatility <= 0.40: {pd.notna(row['annualized_volatility']) and row['annualized_volatility'] <= 0.40}")
-        print(f"  max_drawdown <= 0.50: {pd.notna(row['max_drawdown']) and row['max_drawdown'] <= 0.50}")
-        print(f"  discount_quantile_1y <= 0.8: {pd.notna(row['discount_quantile_1y']) and row['discount_quantile_1y'] <= 0.8}")
-        print(f"  volatility_quantile_1y <= 0.9: {pd.notna(row['volatility_quantile_1y']) and row['volatility_quantile_1y'] <= 0.9}")
-        print(f"  max_drawdown_quantile_1y <= 0.9: {pd.notna(row['max_drawdown_quantile_1y']) and row['max_drawdown_quantile_1y'] <= 0.9}")
-        print(f"  ---动态条件检查---")
-        print(f"  turnover_acceleration > 1.2: {pd.notna(row['turnover_acceleration']) and row['turnover_acceleration'] > 1.2}")
-        print(f"  turnover_quantile >= 0.75: {pd.notna(row['turnover_quantile']) and row['turnover_quantile'] >= 0.75}")
-        print(f"  ma_trend_slope > 0: {pd.notna(row['ma_trend_slope']) and row['ma_trend_slope'] > 0}")
-        print(f"  excess_return_vs_yoy > 0: {pd.notna(row['excess_return_vs_yoy']) and row['excess_return_vs_yoy'] > 0}")
-        print(f"  excess_return_mean > industry_avg: {pd.notna(row['excess_return_mean']) and row['excess_return_mean'] > industry_metrics_mean.get(row['industry'], {}).get('excess_return_mean', -100)}")
+        print(f"\n--- 正在检查基金: {row['name']} ({row['ts_code']}) ---")
+        # --- 调试代码结束 ---
+
+        # 检查安全（Safe）条件
+        cond_safe_1 = pd.notna(row['issue_amount']) and row['issue_amount'] >= 2.0
+        cond_safe_2 = pd.notna(row['turnover_rate']) and row['turnover_rate'] >= turnover_rate_quantile_20
+        cond_safe_3 = pd.notna(row['latest_discount_rate']) and row['latest_discount_rate'] <= 0.02
+        cond_safe_4 = pd.notna(row['annualized_volatility']) and row['annualized_volatility'] <= 0.40
+        cond_safe_5 = pd.notna(row['max_drawdown']) and row['max_drawdown'] <= 0.50
+        cond_safe_6 = pd.notna(row['discount_quantile_1y']) and row['discount_quantile_1y'] <= 0.8
+        cond_safe_7 = pd.notna(row['volatility_quantile_1y']) and row['volatility_quantile_1y'] <= 0.9
+        cond_safe_8 = pd.notna(row['max_drawdown_quantile_1y']) and row['max_drawdown_quantile_1y'] <= 0.9
+        
+        is_safe = (cond_safe_1 and cond_safe_2 and cond_safe_3 and cond_safe_4 and 
+                   cond_safe_5 and cond_safe_6 and cond_safe_7 and cond_safe_8)
+
+        # 检查动态（Dynamic）条件
+        industry_excess_mean = industry_metrics_mean.get(row['industry'], {}).get('excess_return_mean', -100)
+        cond_dynamic_1 = pd.notna(row['turnover_acceleration']) and row['turnover_acceleration'] > 1.2
+        cond_dynamic_2 = pd.notna(row['turnover_quantile']) and row['turnover_quantile'] >= 0.75
+        cond_dynamic_3 = pd.notna(row['ma_trend_slope']) and row['ma_trend_slope'] > 0
+        cond_dynamic_4 = pd.notna(row['excess_return_vs_yoy']) and row['excess_return_vs_yoy'] > 0
+        cond_dynamic_5 = pd.notna(row['excess_return_mean']) and row['excess_return_mean'] > industry_excess_mean
+
+        is_dynamic = (cond_dynamic_1 or cond_dynamic_2 or cond_dynamic_3 or 
+                      cond_dynamic_4 or cond_dynamic_5)
+
+        # --- 调试代码开始 ---
+        print(f"  --- 安全条件检查 (is_safe) ---")
+        print(f"  1. 发行规模 >= 2.0亿: {cond_safe_1} (当前值: {row['issue_amount']})")
+        print(f"  2. 换手率 >= 20%分位点: {cond_safe_2} (当前值: {row['turnover_rate']:.6f})")
+        print(f"  3. 最新折价率 <= 2%: {cond_safe_3} (当前值: {row['latest_discount_rate']:.4f})")
+        print(f"  4. 历史波动率 <= 40%: {cond_safe_4} (当前值: {row['annualized_volatility']:.4f})")
+        print(f"  5. 历史最大回撤 <= 50%: {cond_safe_5} (当前值: {row['max_drawdown']:.4f})")
+        print(f"  6. 折价率1年分位 <= 80%: {cond_safe_6} (当前值: {row['discount_quantile_1y']:.2f})")
+        print(f"  7. 波动率1年分位 <= 90%: {cond_safe_7} (当前值: {row['volatility_quantile_1y']:.2f})")
+        print(f"  8. 最大回撤1年分位 <= 90%: {cond_safe_8} (当前值: {row['max_drawdown_quantile_1y']:.2f})")
+        print(f"  -> 综合安全条件结果: {'✅' if is_safe else '❌'}")
+        
+        print(f"  --- 动态条件检查 (is_dynamic) ---")
+        print(f"  1. 资金流加速度 > 1.2: {cond_dynamic_1} (当前值: {row['turnover_acceleration']:.2f})")
+        print(f"  2. 成交分位 >= 75%: {cond_dynamic_2} (当前值: {row['turnover_quantile']:.2f})")
+        print(f"  3. 超额收益趋势斜率 > 0: {cond_dynamic_3} (当前值: {row['ma_trend_slope']:.4f})")
+        print(f"  4. 超额收益优于去年同期: {cond_dynamic_4} (当前值: {row['excess_return_vs_yoy']:.4f})")
+        print(f"  5. 长期超额收益为正: {cond_dynamic_5} (当前值: {row['excess_return_mean']:.4f}, 行业均值: {industry_excess_mean:.4f})")
+        print(f"  -> 综合动态条件结果: {'✅' if is_dynamic else '❌'}")
         
         # --- 调试代码结束 ---
-        
+
         if is_safe and is_dynamic:
             strategy = "买入机会"
             reasons = []
-            if pd.notna(row['turnover_acceleration']) and row['turnover_acceleration'] > 1.2: reasons.append("资金流入加速")
-            if pd.notna(row['turnover_quantile']) and row['turnover_quantile'] >= 0.75: reasons.append("成交分位高位")
-            if pd.notna(row['ma_trend_slope']) and row['ma_trend_slope'] > 0: reasons.append("超额收益趋势改善")
-            if pd.notna(row['excess_return_vs_yoy']) and row['excess_return_vs_yoy'] > 0: reasons.append("超额收益优于去年同期")
-            if pd.notna(row['excess_return_mean']) and row['excess_return_mean'] > industry_metrics_mean.get(row['industry'], {}).get('excess_return_mean', -100): reasons.append("长期超额为正")
+            if cond_dynamic_1: reasons.append("资金流入加速")
+            if cond_dynamic_2: reasons.append("成交分位高位")
+            if cond_dynamic_3: reasons.append("超额收益趋势改善")
+            if cond_dynamic_4: reasons.append("超额收益优于去年同期")
+            if cond_dynamic_5: reasons.append("长期超额为正")
             reason = "、".join(reasons)
 
         # --- 低买 (Low_Buy) 策略 ---
@@ -121,7 +140,7 @@ def perform_strategies(df_funds):
 
         # --- 卖出警示 (Sell_Alert) 策略 ---
         if strategy == "买入机会":
-            valuation_cond = (pd.notna(row['discount_quantile_1y']) and row['discount_quantile_1y'] > 0.9) or (pd.notna(row['latest_discount_rate']) and row['latest_discount_rate'] > 0.02)
+            valuation_cond = (pd.notna(row['latest_discount_rate']) and row['latest_discount_rate'] > 0.02)
             capital_cond = (
                 (pd.notna(row['turnover_acceleration']) and row['turnover_acceleration'] < 0.8) or
                 (pd.notna(row['turnover_quantile']) and row['turnover_quantile'] <= 0.3) or
