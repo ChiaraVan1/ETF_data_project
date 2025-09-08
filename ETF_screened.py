@@ -201,6 +201,8 @@ def run_all_strategies():
     df_final['最大回撤1年分位(%)'] = (df_final['max_drawdown_quantile_1y'] * 100).round(2)
     df_final['波动率斜率'] = df_final['volatility_slope'].round(4)
     df_final['最大回撤斜率'] = df_final['max_drawdown_slope'].round(4)
+    print("以下是 df_final 的前 5 行数据:")
+    print(df_final.head().to_string())
     
     output_columns = [
         'ts_code', 'name', 'industry', 'invest_type', 'Strategy', 'Reason',
@@ -210,6 +212,8 @@ def run_all_strategies():
         '波动率斜率', '最大回撤斜率'
     ]
     df_final = df_final[output_columns]
+    print("以下是 df_final 的前 5 行数据:")
+    print(df_final.head().to_string())
 
     output_filename = 'etf_screener_final_report.csv'
     df_final.to_csv(output_filename, index=False, encoding='utf-8-sig')
