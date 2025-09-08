@@ -69,7 +69,7 @@ def perform_strategies(df_funds):
         cond_safe_1 = pd.notna(row['issue_amount']) and row['issue_amount'] >= 2.0
         cond_safe_2 = pd.notna(row['turnover_rate']) and row['turnover_rate'] >= turnover_rate_quantile_20
         cond_safe_3 = pd.notna(row['latest_discount_rate']) and row['latest_discount_rate'] <= 0.02
-        cond_safe_4 = pd.notna(row['annualized_volatility']) and row['annualized_volatility'] <= 0.40
+        cond_safe_4 = pd.notna(row['annualized_volatility']) and row['annualized_volatility'] <= 40
         cond_safe_5 = pd.notna(row['max_drawdown']) and row['max_drawdown'] <= 0.50
         cond_safe_6 = pd.notna(row['discount_quantile_1y']) and row['discount_quantile_1y'] <= 0.8
         cond_safe_7 = pd.notna(row['volatility_quantile_1y']) and row['volatility_quantile_1y'] <= 0.9
