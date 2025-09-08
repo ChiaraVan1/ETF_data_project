@@ -30,8 +30,29 @@ jobs:
         run: |
           python ETF.py
 
+      - name: 运行 ETF 筛选脚本
+        run: python ETF_screened.py
+
+      - name: 上传数据到OSS并缓存报告
+        env:
+          ALIYUN_ACCESS_KEY_ID: ${{ secrets.ALIYUN_ACCESS_KEY_ID }}
+          ALIYUN_ACCESS_SECRET: ${{ secrets.ALIYUN_ACCESS_KEY_SECRET }}
+          OSS_ENDPOINT: ${{ secrets.OSS_ENDPOINT }}
+          OSS_BUCKET_NAME: ${{ secrets.OSS_BUCKET_NAME }}
+        run: |
+          python upload_to_oss.py
+          # 缓存 etf_metrics_daily_report.csv
+          
       - name: Cache the data report
         uses: actions/cache@v3
         with:
           path: etf_metrics_daily_report.csv
           key: ${{ runner.os }}-etf-data-report-${{ hashFiles('etf_metrics_daily_report.csv') }}
+
+      - name: Commit and push changes
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git add etf_screener_final_report.csv
+          git commit -m "Update ETF screener final report" || echo "No changes to commit"
+          git push
