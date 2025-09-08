@@ -40,7 +40,7 @@ jobs:
           python upload_to_oss.py
 
       - name: Upload generated reports as artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: etf-reports
           path: |
