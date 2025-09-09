@@ -31,7 +31,7 @@ jobs:
           name: etf-reports
           path: .
           
-      - name: Run strategy and upload
+      - name: Run strategy and upload to OSS
         env:
           TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
           ALIYUN_ACCESS_KEY_ID: ${{ secrets.ALIYUN_ACCESS_KEY_ID }}
@@ -41,3 +41,28 @@ jobs:
         run: |
           python ETF_screened.py
           python upload_to_oss.py
+
+      - name: Create and publish a GitHub Release
+        if: success()
+        id: create_release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: "report-$(date +'%Y%m%d')"
+          name: "ETF Metrics Report $(date +'%Y-%m-%d')"
+          body: |
+            Daily ETF metrics and screener reports.
+            
+            This release contains the latest data from the ETF monitoring model.
+          files: |
+            etf_metrics_daily_report.csv
+            etf_screener_final_report.csv
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          
+      - name: Upload new reports as artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: etf-reports
+          path: |
+            etf_metrics_daily_report.csv
+            etf_screener_final_report.csv
