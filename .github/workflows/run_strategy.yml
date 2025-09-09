@@ -23,20 +23,20 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pandas tushare numpy oss2
+          pip install pandas tushare numpy oss2 jq
 
       - name: Download latest data from release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # 获取最新Release的ID
+          # 获取所有Release列表并找到第一个（最新的）
           LATEST_RELEASE_ID=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
-          "https://api.github.com/repos/${{ github.repository }}/releases/latest" | \
-          jq -r '.id')
+          "https://api.github.com/repos/${{ github.repository }}/releases" | \
+          jq -r '.[0].id')
           
           # 检查是否成功获取Release ID
           if [ "$LATEST_RELEASE_ID" == "null" ]; then
-            echo "::error::Could not find the latest release."
+            echo "::error::Could not find any release."
             exit 1
           fi
 
