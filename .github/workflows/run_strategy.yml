@@ -1,4 +1,4 @@
-name: Run ETF Strategy Only
+name: Run ETF Strategy from Release
 
 on:
   push:
@@ -25,12 +25,35 @@ jobs:
           python -m pip install --upgrade pip
           pip install pandas tushare numpy oss2
 
-      - name: Download latest data artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: etf-reports
-          path: .
+      - name: Download latest data from release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # 获取最新Release的ID
+          LATEST_RELEASE_ID=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+          "https://api.github.com/repos/${{ github.repository }}/releases/latest" | \
+          jq -r '.id')
           
+          # 检查是否成功获取Release ID
+          if [ "$LATEST_RELEASE_ID" == "null" ]; then
+            echo "::error::Could not find the latest release."
+            exit 1
+          fi
+
+          # 获取etf_metrics_daily_report.csv的下载URL
+          METRICS_URL=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+          "https://api.github.com/repos/${{ github.repository }}/releases/${LATEST_RELEASE_ID}/assets" | \
+          jq -r '.[] | select(.name == "etf_metrics_daily_report.csv") | .url')
+
+          # 获取etf_screener_final_report.csv的下载URL
+          SCREENER_URL=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+          "https://api.github.com/repos/${{ github.repository }}/releases/${LATEST_RELEASE_ID}/assets" | \
+          jq -r '.[] | select(.name == "etf_screener_final_report.csv") | .url')
+          
+          # 下载文件
+          curl -sLJO -H "Accept: application/octet-stream" -H "Authorization: token $GITHUB_TOKEN" "$METRICS_URL"
+          curl -sLJO -H "Accept: application/octet-stream" -H "Authorization: token $GITHUB_TOKEN" "$SCREENER_URL"
+
       - name: Run strategy and upload
         env:
           TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
@@ -41,3 +64,33 @@ jobs:
         run: |
           python ETF_screened.py
           python upload_to_oss.py
+
+      # 可选：如果希望将新结果也发布为Release
+      - name: Create release tag
+        id: create_tag
+        run: |
+          DATE=$(date +'%Y%m%d%H%M')
+          echo "tag=v$DATE" >> $GITHUB_ENV
+          echo "release_name=Daily ETF Strategy Update $DATE" >> $GITHUB_ENV
+      
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ env.tag }}
+          release_name: ${{ env.release_name }}
+          draft: false
+          prerelease: true
+
+      - name: Upload New Screener Report
+        id: upload_screener_asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./etf_screener_final_report.csv
+          asset_name: etf_screener_final_report.csv
+          asset_content_type: text/csv
