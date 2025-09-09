@@ -61,7 +61,7 @@ jobs:
           tag_name: ${{ env.tag }}
           release_name: ${{ env.release_name }}
           draft: false
-          prerelease: true
+          prerelease: false
 
       - name: Upload ETF Metrics Report
         id: upload_metrics_asset
