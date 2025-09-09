@@ -6,6 +6,8 @@ on:
       - main
     paths:
       - 'ETF.py'
+      - 'ETF_screened.py'
+      - 'upload_to_oss.py'
   workflow_dispatch:
   schedule:
     - cron: '10 9 * * *'
@@ -27,22 +29,58 @@ jobs:
           python -m pip install --upgrade pip
           pip install pandas tushare numpy oss2
 
-      - name: Run all scripts and upload
+      - name: Run data generation and strategy
         env:
           TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
+        run: |
+          python ETF.py
+          python ETF_screened.py
+
+      - name: Upload reports to OSS
+        env:
           ALIYUN_ACCESS_KEY_ID: ${{ secrets.ALIYUN_ACCESS_KEY_ID }}
           ALIYUN_ACCESS_KEY_SECRET: ${{ secrets.ALIYUN_ACCESS_KEY_SECRET }}
           OSS_ENDPOINT: ${{ secrets.OSS_ENDPOINT }}
           OSS_BUCKET_NAME: ${{ secrets.OSS_BUCKET_NAME }}
         run: |
-          python ETF.py
-          python ETF_screened.py
           python upload_to_oss.py
 
-      - name: Upload generated reports as artifacts
-        uses: actions/upload-artifact@v4
+      - name: Create release tag
+        id: create_tag
+        run: |
+          DATE=$(date +'%Y%m%d%H%M')
+          echo "tag=v$DATE" >> $GITHUB_ENV
+          echo "release_name=Daily ETF Report $DATE" >> $GITHUB_ENV
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          name: etf-reports
-          path: |
-            etf_metrics_daily_report.csv
-            etf_screener_final_report.csv
+          tag_name: ${{ env.tag }}
+          release_name: ${{ env.release_name }}
+          draft: false
+          prerelease: true
+
+      - name: Upload ETF Metrics Report
+        id: upload_metrics_asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./etf_metrics_daily_report.csv
+          asset_name: etf_metrics_daily_report.csv
+          asset_content_type: text/csv
+
+      - name: Upload ETF Screener Report
+        id: upload_screener_asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./etf_screener_final_report.csv
+          asset_name: etf_screener_final_report.csv
+          asset_content_type: text/csv
