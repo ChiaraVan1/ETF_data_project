@@ -29,28 +29,23 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # 获取所有Release列表并找到第一个（最新的）
           LATEST_RELEASE_ID=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
           "https://api.github.com/repos/${{ github.repository }}/releases" | \
           jq -r '.[0].id')
           
-          # 检查是否成功获取Release ID
           if [ "$LATEST_RELEASE_ID" == "null" ]; then
             echo "::error::Could not find any release."
             exit 1
           fi
 
-          # 获取etf_metrics_daily_report.csv的下载URL
           METRICS_URL=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
           "https://api.github.com/repos/${{ github.repository }}/releases/${LATEST_RELEASE_ID}/assets" | \
           jq -r '.[] | select(.name == "etf_metrics_daily_report.csv") | .url')
 
-          # 获取etf_screener_final_report.csv的下载URL
           SCREENER_URL=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
           "https://api.github.com/repos/${{ github.repository }}/releases/${LATEST_RELEASE_ID}/assets" | \
           jq -r '.[] | select(.name == "etf_screener_final_report.csv") | .url')
           
-          # 下载文件
           curl -sLJO -H "Accept: application/octet-stream" -H "Authorization: token $GITHUB_TOKEN" "$METRICS_URL"
           curl -sLJO -H "Accept: application/octet-stream" -H "Authorization: token $GITHUB_TOKEN" "$SCREENER_URL"
 
@@ -64,6 +59,9 @@ jobs:
         run: |
           python ETF_screened.py
           python upload_to_oss.py
+
+      - name: Generate video data
+        run: python video_data_generator.py
 
       # 可选：如果希望将新结果也发布为Release
       - name: Create release tag
@@ -93,4 +91,24 @@ jobs:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
           asset_path: ./etf_screener_final_report.csv
           asset_name: etf_screener_final_report.csv
+          asset_content_type: text/csv
+
+      - name: Upload daily video data
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./daily_video_top1.csv
+          asset_name: daily_video_top1.csv
+          asset_content_type: text/csv
+
+      - name: Upload weekly video data
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./weekly_video_top3.csv
+          asset_name: weekly_video_top3.csv
           asset_content_type: text/csv
