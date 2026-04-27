@@ -40,24 +40,34 @@ def fetch_and_filter_funds(pro):
     df_all_funds = pd.concat([df_etf_list, df_offshore_list], ignore_index=True)
     print(f"合并后，总共获取到 {len(df_all_funds)} 只基金的信息。")
 
-    keywords_consumer = ['消费', '食品', '酒', '饮料']
-    keywords_tech = ['科技', '信息技术', '芯片', '半导体', '计算机', '通信', '新能源']
-    keywords_healthcare = ['医疗', '医药', '生物', '创新药', '健康']
+    keywords_consumer    = ['消费', '食品', '酒', '饮料']
+    keywords_tech        = ['科技', '信息技术', '芯片', '半导体', '计算机', '通信', '新能源']
+    keywords_healthcare  = ['医疗', '医药', '生物', '创新药', '健康']
+    # 宽基关键词：匹配基金名称即可，无需看 benchmark 字段（宽基名称本身已足够准确）
+    keywords_broad = ['沪深300', '中证500', '中证1000', '中证红利', '上证50',
+                      '科创50', '创业板', '标普500', 'S&P', '纳斯达克', 'NASDAQ',
+                      '恒生', '恒科', '日经', '德国']
 
-    name_col = 'name'
+    name_col      = 'name'
     benchmark_col = 'benchmark'
 
-    condition_consumer = (df_all_funds[name_col].str.contains('|'.join(keywords_consumer), na=False)) | \
-                         (df_all_funds[benchmark_col].str.contains('|'.join(keywords_consumer), na=False))
-    condition_tech = (df_all_funds[name_col].str.contains('|'.join(keywords_tech), na=False)) | \
-                     (df_all_funds[benchmark_col].str.contains('|'.join(keywords_tech), na=False))
-    condition_healthcare = (df_all_funds[name_col].str.contains('|'.join(keywords_healthcare), na=False)) | \
-                           (df_all_funds[benchmark_col].str.contains('|'.join(keywords_healthcare), na=False))
+    condition_consumer   = (df_all_funds[name_col].str.contains('|'.join(keywords_consumer),   na=False)) | \
+                           (df_all_funds[benchmark_col].str.contains('|'.join(keywords_consumer),   na=False))
+    condition_tech       = (df_all_funds[name_col].str.contains('|'.join(keywords_tech),        na=False)) | \
+                           (df_all_funds[benchmark_col].str.contains('|'.join(keywords_tech),        na=False))
+    condition_healthcare = (df_all_funds[name_col].str.contains('|'.join(keywords_healthcare),  na=False)) | \
+                           (df_all_funds[benchmark_col].str.contains('|'.join(keywords_healthcare),  na=False))
+    condition_broad      =  df_all_funds[name_col].str.contains('|'.join(keywords_broad), na=False)
 
-    df_selected_funds = df_all_funds[condition_consumer | condition_tech | condition_healthcare].copy()
-    df_selected_funds.loc[condition_consumer[condition_consumer.index], 'industry'] = '消费'
-    df_selected_funds.loc[condition_tech[condition_tech.index], 'industry'] = '科技'
-    df_selected_funds.loc[condition_healthcare[condition_healthcare.index], 'industry'] = '医疗'
+    all_conditions = condition_consumer | condition_tech | condition_healthcare | condition_broad
+    df_selected_funds = df_all_funds[all_conditions].copy()
+
+    # 行业标注：优先级 医疗 > 科技 > 消费 > 宽基，专属性强的在后面赋值会覆盖前面
+    df_selected_funds['industry'] = '宽基'
+    df_selected_funds.loc[condition_broad.reindex(df_selected_funds.index, fill_value=False),      'industry'] = '宽基'
+    df_selected_funds.loc[condition_consumer.reindex(df_selected_funds.index, fill_value=False),   'industry'] = '消费'
+    df_selected_funds.loc[condition_tech.reindex(df_selected_funds.index, fill_value=False),       'industry'] = '科技'
+    df_selected_funds.loc[condition_healthcare.reindex(df_selected_funds.index, fill_value=False), 'industry'] = '医疗'
 
     selected_columns = ['ts_code', 'name', 'market', 'list_date', 'm_fee', 'c_fee', 'issue_amount', 'benchmark', 'invest_type', 'industry']
     df_lean = df_selected_funds.loc[:, selected_columns]
@@ -89,10 +99,30 @@ def map_funds_to_indices(pro, df_lean):
         cleaned_fund_name = row['cleaned_benchmark_name']
         fund_list_date = row['list_date']
         manual_map = {
-            '沪深300指数': '000300.SH',
-            '创业板指数': '399006.SZ',
-            '中证消费电子主题指数': '931104.CSI',
-            '上证科创板芯片指数': '000685.SH',
+            # ── 原有 ──
+            '沪深300指数':           '000300.SH',
+            '创业板指数':            '399006.SZ',
+            '中证消费电子主题指数':   '931104.CSI',
+            '上证科创板芯片指数':     '000685.SH',
+            # ── 宽基 A股 ──
+            '上证50指数':            '000016.SH',
+            '中证500指数':           '000905.SH',
+            '中证1000指数':          '000852.SH',
+            '中证红利指数':          '000922.CSI',
+            '科创50指数':            '000688.SH',
+            # ── 宽基 港股 ──
+            '恒生指数':              'HSI',
+            '恒生科技指数':          'HSTECH',
+            '恒生中国企业指数':      'HSCEI',
+            # ── 宽基 海外（ETF基准字段常见写法） ──
+            'S&P 500 Index':         'SPX',
+            'S&P500 Index':          'SPX',
+            '标普500指数':            'SPX',
+            'NASDAQ-100 Index':      'NDX',
+            'Nasdaq-100 Index':      'NDX',
+            '纳斯达克100指数':        'NDX',
+            'MSCI日本指数':          'MXJP',
+            '日经225指数':           'NKY',
         }
         if cleaned_fund_name in manual_map:
             return manual_map[cleaned_fund_name]
