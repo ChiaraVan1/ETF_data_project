@@ -1,9 +1,11 @@
 name: Test ETF Metrics
 
 on:
+  schedule:
+    - cron: '0 18 * * *'   # 每天北京时间 18:00 运行（UTC 10:00）
   push:
     branches: [ main, master ]
-  workflow_dispatch:  # 允许手动触发
+  workflow_dispatch:
 
 jobs:
   test:
@@ -32,3 +34,14 @@ jobs:
       with:
         name: etf-metrics-report
         path: simple_etf_metrics.csv
+
+    - name: Publish to Release
+      uses: softprops/action-gh-release@v2
+      with:
+        files: simple_etf_metrics.csv
+        tag_name: latest
+        name: "Latest ETF Metrics Report"
+        body: "📊 每日自动更新的ETF指标报告"
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
