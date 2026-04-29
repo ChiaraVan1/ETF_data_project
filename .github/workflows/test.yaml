@@ -7,6 +7,9 @@ on:
     branches: [ main, master ]
   workflow_dispatch:
 
+permissions:
+  contents: write   # ← 必须加，否则 GITHUB_TOKEN 无权创建/覆盖 Release
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -43,5 +46,7 @@ jobs:
         name: "Latest ETF Metrics Report"
         body: "📊 每日自动更新的ETF指标报告"
         prerelease: false
+        make_latest: true
+        overwrite: true 
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
