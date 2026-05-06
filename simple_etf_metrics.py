@@ -57,6 +57,7 @@ def get_etf_metrics():
     end_str    = end_date.strftime('%Y%m%d')
 
     results = []
+    price_frames = []   # ← 新增：收集各ETF价格序列，用于胜率赔率计算
 
     for erp_code, etf_code in ETF_LIST:
         print(f"\n处理 {erp_code} -> {etf_code}")
@@ -120,6 +121,11 @@ def get_etf_metrics():
             m['trade_date']     = df.index[-1].strftime('%Y-%m-%d')
             m['latest_close']   = latest['close_fund']
             m['latest_pct_chg'] = latest['pct_chg_fund']
+
+            # ← 新增：保存价格序列，供胜率赔率计算使用
+            price_s = df[['close_fund']].copy()
+            price_s.columns = [erp_code]
+            price_frames.append(price_s)
 
             # ── 2. 净值（折溢价）────────────────────────────────────────────
             df_nav = pro.fund_nav(ts_code=etf_code,
@@ -288,6 +294,12 @@ def get_etf_metrics():
         except Exception as e:
             print(f"  错误 ({etf_code}): {e}")
             results.append(m)
+
+    # ← 新增：合并所有ETF价格序列并保存
+    if price_frames:
+        price_df = pd.concat(price_frames, axis=1).sort_index()
+        price_df.to_csv('etf_price.csv', encoding='utf-8-sig')
+        print("✅ ETF价格序列已保存到 etf_price.csv")
 
     return pd.DataFrame(results)
 
