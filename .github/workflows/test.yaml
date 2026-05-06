@@ -36,12 +36,16 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: etf-metrics-report
-        path: simple_etf_metrics.csv
-
+        path: |
+          simple_etf_metrics.csv
+          data/etf_price.csv
+        
     - name: Publish to Release
       uses: softprops/action-gh-release@v2
       with:
-        files: simple_etf_metrics.csv
+        files: |
+          simple_etf_metrics.csv
+          data/etf_price.csv
         tag_name: latest
         name: "Latest ETF Metrics Report"
         body: "📊 每日自动更新的ETF指标报告"
