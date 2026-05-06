@@ -52,7 +52,7 @@ def get_etf_metrics():
     pro = ts.pro_api()
 
     end_date   = datetime.now()
-    start_date = end_date - timedelta(days=3 * 365)   # 取3年，与监控模型一致
+    start_date = end_date - timedelta(days=10 * 365)   # 取10年，与监控模型一致
     start_str  = start_date.strftime('%Y%m%d')
     end_str    = end_date.strftime('%Y%m%d')
 
