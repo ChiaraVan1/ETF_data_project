@@ -26,6 +26,11 @@ ETF_LIST = [
     ("QQQ",    "159696.SZ"),   # 纳斯达克
     ("EWQ",    "513080.SH"),   # 法国ETF
     ("EWJ",    "513880.SH"),   # 日本ETF
+    # ETF_LIST 追加
+    ("000069", "510150.SH"),   # 消费80
+    ("930781", "516620.SH"),   # 中证影视
+    ("000989", "159936.SZ"),   # 全指可选
+    ("931139", "515650.SH"),   # CS消费50
 ]
 
 # ETF → 基准指数（仅 tushare index_daily 可拉的 A 股基准参与超额收益计算）
@@ -41,6 +46,11 @@ ETF_TO_BENCHMARK = {
     "159696.SZ": None,
     "513080.SH": None,
     "513880.SH": None,
+    # ETF_TO_BENCHMARK 追加
+    "510150.SH": "000069.SH",
+    "516620.SH": "930781.CSI",
+    "159936.SZ": "000989.CSI",
+    "515650.SH": "931139.CSI",
 }
 
 
@@ -52,7 +62,7 @@ def get_etf_metrics():
     pro = ts.pro_api()
 
     end_date   = datetime.now()
-    start_date = end_date - timedelta(days=10 * 365)   # 取10年，与监控模型一致
+    start_date = end_date - timedelta(days=3 * 365)   # 取3年，与监控模型一致
     start_str  = start_date.strftime('%Y%m%d')
     end_str    = end_date.strftime('%Y%m%d')
 
