@@ -1,7 +1,7 @@
-name: Test Index PE
+name: Test 成长100 PE
 
 on:
-  workflow_dispatch:  # 手动触发
+  workflow_dispatch:
 
 jobs:
   test:
@@ -15,9 +15,20 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install tushare pandas
+        run: pip install yquoter tushare pandas
 
-      - name: Fetch 国证成长100 历史PE
+      - name: Test Yquoter get_factors (980080)
+        run: |
+          python3 - <<'EOF'
+          from yquoter import Stock
+
+          s = Stock("cn", "980080")
+          df = s.get_factors(trade_date="20260509")
+          print("=== Yquoter 结果 ===")
+          print(df)
+          EOF
+
+      - name: Test Tushare index_dailybasic (980080)
         env:
           TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
         run: |
@@ -27,13 +38,35 @@ jobs:
 
           pro = ts.pro_api(os.environ["TUSHARE_TOKEN"])
 
-          df = pro.index_dailybasic(
-              ts_code="980080.SZ",
-              start_date="20200101",
-              end_date="20260527",
-              fields="trade_date,pe,pe_ttm,pb"
-          )
+          # 先搜索 980080 在 tushare 里的正确 ts_code
+          index_list = pro.index_basic(market='SW')
+          print("SW市场指数列表（前10）：")
+          print(index_list.head(10))
 
-          print(df.head(20))
-          print(f"\n共 {len(df)} 条记录")
+          # 尝试几种可能的格式
+          for ts_code in ["980080.SZ", "980080.SI", "980080.CNI"]:
+              try:
+                  df = pro.index_dailybasic(
+                      ts_code=ts_code,
+                      start_date="20230101",
+                      end_date="20260527",
+                      fields="trade_date,pe,pe_ttm,pb"
+                  )
+                  if not df.empty:
+                      print(f"\n=== Tushare 结果 ({ts_code}) ===")
+                      print(df.head(20))
+                      print(f"共 {len(df)} 条记录")
+                      df.to_csv("pe_data.csv", index=False)
+                      break
+                  else:
+                      print(f"{ts_code}: 无数据")
+              except Exception as e:
+                  print(f"{ts_code}: 报错 - {e}")
           EOF
+
+      - name: Upload CSV
+        uses: actions/upload-artifact@v4
+        with:
+          name: pe_data
+          path: pe_data.csv
+        if: always()
