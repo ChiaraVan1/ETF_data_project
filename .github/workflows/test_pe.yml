@@ -1,10 +1,10 @@
-name: Get 成长100 PE via ETF
+name: Get 成长100 PE from EastMoney
 
 on:
   workflow_dispatch:
 
 jobs:
-  search:
+  fetch:
     runs-on: ubuntu-latest
     steps:
       - name: Set up Python
@@ -13,36 +13,34 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install tushare pandas
+        run: pip install requests pandas
 
-      - name: Get ETF info and benchmark
-        env:
-          TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
+      - name: Fetch PE from EastMoney
         run: |
           python3 - <<'EOF'
-          import tushare as ts
-          import os
+          import requests
+          import pandas as pd
 
-          pro = ts.pro_api(os.environ["TUSHARE_TOKEN"])
+          headers = {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+              'Referer': 'https://quote.eastmoney.com/sz980080.html',
+          }
 
-          # 查 ETF 基本信息，确认 benchmark 字段
-          df = pro.fund_basic(market='E')
-          etf = df[df['ts_code'] == '159259.SZ']
-          print("=== ETF 基本信息 ===")
-          print(etf.T)
+          # 东方财富估值历史接口
+          url = 'https://datacenter-web.eastmoney.com/api/data/v1/get'
+          params = {
+              'reportName': 'RPT_VALUEANALYSIS_DET',
+              'columns': 'ALL',
+              'sortColumns': 'TRADE_DATE',
+              'sortTypes': '-1',
+              'source': 'WEB',
+              'client': 'WEB',
+              'filter': '(SECURITY_CODE="980080")',
+              'pageNumber': '1',
+              'pageSize': '100',
+          }
 
-          # 查跟踪指数的 ts_code
-          benchmark = etf['benchmark'].values[0] if not etf.empty else None
-          print(f"\nbenchmark: {benchmark}")
-
-          # 尝试用 benchmark 查指数 PE
-          for market in ['MSCI', 'CSI', 'SSE', 'SZSE', 'CICC', 'SW', 'OTH']:
-              try:
-                  idx = pro.index_basic(market=market)
-                  result = idx[idx['name'].str.contains('成长100', na=False)]
-                  if not result.empty:
-                      print(f"\n找到指数 market={market}:")
-                      print(result[['ts_code', 'name']].to_string())
-              except:
-                  pass
+          r = requests.get(url, params=params, headers=headers, timeout=10)
+          print('status:', r.status_code)
+          print(r.text[:1000])
           EOF
