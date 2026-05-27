@@ -1,34 +1,4 @@
-name: Test 成长100 PE
-
-on:
-  workflow_dispatch:
-
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install dependencies
-        run: pip install yquoter tushare pandas
-
-      - name: Test Yquoter get_factors (980080)
-        run: |
-          python3 - <<'EOF'
-          from yquoter import Stock
-
-          s = Stock("cn", "980080")
-          df = s.get_factors(trade_date="20260509")
-          print("=== Yquoter 结果 ===")
-          print(df)
-          EOF
-
-      - name: Test Tushare index_dailybasic (980080)
+- name: Search 成长100 in Tushare
         env:
           TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
         run: |
@@ -38,35 +8,14 @@ jobs:
 
           pro = ts.pro_api(os.environ["TUSHARE_TOKEN"])
 
-          # 先搜索 980080 在 tushare 里的正确 ts_code
-          index_list = pro.index_basic(market='SW')
-          print("SW市场指数列表（前10）：")
-          print(index_list.head(10))
-
-          # 尝试几种可能的格式
-          for ts_code in ["980080.SZ", "980080.SI", "980080.CNI"]:
+          # 搜所有市场的指数，找名字含"成长100"的
+          for market in ['MSCI', 'CSI', 'SSE', 'SZSE', 'CICC', 'SW', 'OTH']:
               try:
-                  df = pro.index_dailybasic(
-                      ts_code=ts_code,
-                      start_date="20230101",
-                      end_date="20260527",
-                      fields="trade_date,pe,pe_ttm,pb"
-                  )
-                  if not df.empty:
-                      print(f"\n=== Tushare 结果 ({ts_code}) ===")
-                      print(df.head(20))
-                      print(f"共 {len(df)} 条记录")
-                      df.to_csv("pe_data.csv", index=False)
-                      break
-                  else:
-                      print(f"{ts_code}: 无数据")
+                  df = pro.index_basic(market=market)
+                  result = df[df['name'].str.contains('成长100', na=False)]
+                  if not result.empty:
+                      print(f"=== 找到了！market={market} ===")
+                      print(result[['ts_code', 'name', 'market', 'list_date']])
               except Exception as e:
-                  print(f"{ts_code}: 报错 - {e}")
+                  print(f"market={market} 报错: {e}")
           EOF
-
-      - name: Upload CSV
-        uses: actions/upload-artifact@v4
-        with:
-          name: pe_data
-          path: pe_data.csv
-        if: always()
