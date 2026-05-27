@@ -1,4 +1,21 @@
-- name: Search 成长100 in Tushare
+name: Search 成长100 in Tushare
+
+on:
+  workflow_dispatch:
+
+jobs:
+  search:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install tushare pandas
+
+      - name: Search 成长100 in Tushare
         env:
           TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
         run: |
@@ -8,7 +25,6 @@
 
           pro = ts.pro_api(os.environ["TUSHARE_TOKEN"])
 
-          # 搜所有市场的指数，找名字含"成长100"的
           for market in ['MSCI', 'CSI', 'SSE', 'SZSE', 'CICC', 'SW', 'OTH']:
               try:
                   df = pro.index_basic(market=market)
