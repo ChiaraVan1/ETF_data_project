@@ -1,4 +1,4 @@
-name: Search 成长100 in Tushare
+name: Get 成长100 PE via ETF
 
 on:
   workflow_dispatch:
@@ -15,7 +15,7 @@ jobs:
       - name: Install dependencies
         run: pip install tushare pandas
 
-      - name: Search 成长100 in Tushare
+      - name: Get ETF info and benchmark
         env:
           TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
         run: |
@@ -25,13 +25,24 @@ jobs:
 
           pro = ts.pro_api(os.environ["TUSHARE_TOKEN"])
 
+          # 查 ETF 基本信息，确认 benchmark 字段
+          df = pro.fund_basic(market='E')
+          etf = df[df['ts_code'] == '159259.SZ']
+          print("=== ETF 基本信息 ===")
+          print(etf.T)
+
+          # 查跟踪指数的 ts_code
+          benchmark = etf['benchmark'].values[0] if not etf.empty else None
+          print(f"\nbenchmark: {benchmark}")
+
+          # 尝试用 benchmark 查指数 PE
           for market in ['MSCI', 'CSI', 'SSE', 'SZSE', 'CICC', 'SW', 'OTH']:
               try:
-                  df = pro.index_basic(market=market)
-                  result = df[df['name'].str.contains('成长100', na=False)]
+                  idx = pro.index_basic(market=market)
+                  result = idx[idx['name'].str.contains('成长100', na=False)]
                   if not result.empty:
-                      print(f"=== 找到了！market={market} ===")
-                      print(result[['ts_code', 'name', 'market', 'list_date']])
-              except Exception as e:
-                  print(f"market={market} 报错: {e}")
+                      print(f"\n找到指数 market={market}:")
+                      print(result[['ts_code', 'name']].to_string())
+              except:
+                  pass
           EOF
