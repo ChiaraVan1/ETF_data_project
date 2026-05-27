@@ -1,0 +1,39 @@
+name: Test Index PE
+
+on:
+  workflow_dispatch:  # 手动触发
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install tushare pandas
+
+      - name: Fetch 国证成长100 历史PE
+        env:
+          TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
+        run: |
+          python3 - <<'EOF'
+          import tushare as ts
+          import os
+
+          pro = ts.pro_api(os.environ["TUSHARE_TOKEN"])
+
+          df = pro.index_dailybasic(
+              ts_code="980080.SZ",
+              start_date="20200101",
+              end_date="20260527",
+              fields="trade_date,pe,pe_ttm,pb"
+          )
+
+          print(df.head(20))
+          print(f"\n共 {len(df)} 条记录")
+          EOF
